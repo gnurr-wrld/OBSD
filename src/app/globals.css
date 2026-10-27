@@ -1,0 +1,142 @@
+@import "tailwindcss";
+
+:root {
+  --color-canopy: #172A1E;
+  --color-canopy-deep: #0E1B13;
+  --color-moss: #284232;
+  --color-beige: #EAE3D5;
+  --color-beige-warm: #DFD5C3;
+  --color-beige-card: #F5F1E9;
+  --color-slate: #4A4F4B;
+  --color-slate-muted: #6C726D;
+  --color-maroon: #5E1B24;
+  --color-maroon-hover: #47131A;
+  --color-border: #D2C8B8;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: var(--color-beige);
+  color: var(--color-canopy-deep);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-beige);
+  color: var(--color-canopy-deep);
+  font-family: var(--font-montserrat), sans-serif;
+  letter-spacing: -0.01em;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, .font-serif-display {
+  font-family: var(--font-cormorant), serif;
+  letter-spacing: -0.015em;
+}
+
+/* Fluid Liquid-Glass Button Finishes: Forest Green -> Metallic Gold on Hover */
+.btn-glass-primary,
+.btn-glass-accent,
+.btn-glass-frost-dark {
+  position: relative;
+  border-radius: 9999px;
+  background: linear-gradient(
+    135deg,
+    rgba(23, 42, 30, 0.86) 0%,
+    rgba(40, 66, 50, 0.78) 100%
+  );
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  color: #F5F1E9;
+  border: 1px solid rgba(212, 175, 55, 0.38);
+  box-shadow:
+    0 8px 24px -6px rgba(14, 27, 19, 0.28),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.2);
+  transition:
+    transform 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.3s ease,
+    border-color 0.38s ease;
+}
+
+.btn-glass-primary:hover,
+.btn-glass-accent:hover,
+.btn-glass-frost-dark:hover {
+  transform: translateY(-2px) scale(1.015);
+  background: linear-gradient(
+    135deg,
+    rgba(218, 180, 62, 0.92) 0%,
+    rgba(184, 140, 34, 0.85) 100%
+  );
+  color: #0E1B13;
+  border-color: rgba(255, 238, 170, 0.9);
+  box-shadow:
+    0 12px 28px -6px rgba(212, 175, 55, 0.45),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.65);
+}
+
+.btn-glass-primary:active,
+.btn-glass-accent:active,
+.btn-glass-frost-dark:active {
+  transform: translateY(0) scale(0.99);
+}
+
+/* Secondary / Unselected Filter & Size Pills: Soft Green Tint -> Gold Glass on Hover */
+.btn-glass-light {
+  position: relative;
+  border-radius: 9999px;
+  background: linear-gradient(
+    135deg,
+    rgba(40, 66, 50, 0.14) 0%,
+    rgba(23, 42, 30, 0.08) 100%
+  );
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  color: #172A1E;
+  border: 1px solid rgba(23, 42, 30, 0.22);
+  box-shadow:
+    0 4px 14px -4px rgba(14, 27, 19, 0.08),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.55);
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    background 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.3s ease,
+    border-color 0.35s ease;
+}
+
+.btn-glass-light:hover {
+  transform: translateY(-1.5px);
+  background: linear-gradient(
+    135deg,
+    rgba(218, 180, 62, 0.9) 0%,
+    rgba(184, 140, 34, 0.82) 100%
+  );
+  color: #0E1B13;
+  border-color: rgba(255, 238, 170, 0.85);
+  box-shadow:
+    0 8px 20px -4px rgba(212, 175, 55, 0.38),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.65);
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-beige);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-moss);
+  border-radius: 4px;
+}
+
+/* Focus visibility for keyboard navigation (WCAG 2.1 AA) */
+*:focus-visible {
+  outline: 2px solid var(--color-maroon);
+  outline-offset: 2px;
+}
