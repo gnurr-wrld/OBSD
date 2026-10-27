@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Cormorant, Montserrat } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const cormorant = Cormorant({
@@ -31,6 +32,7 @@ export default function RootLayout({
     <html lang="en" className={`${cormorant.variable} ${montserrat.variable}`}>
       <body className="antialiased selection:bg-[#5E1B24] selection:text-[#F5F1E9]">
         {children}
+        <Analytics />
       </body>
     </html>
   );

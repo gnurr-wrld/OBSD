@@ -12,6 +12,7 @@
   "dependencies": {
     "@gsap/react": "^2.1.2",
     "@medusajs/js-sdk": "^2.5.0",
+    "@vercel/analytics": "^2.0.1",
     "gsap": "^3.12.7",
     "lucide-react": "^0.475.0",
     "next": "^15.2.0",
@@ -29,4 +30,3 @@
     "typescript": "^5.7.3"
   }
 }
-

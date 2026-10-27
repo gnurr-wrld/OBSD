@@ -2,11 +2,11 @@ import type { NextConfig } from "next";
 
 const cspHeader = `
   default-src 'self';
-  script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.yoco.com;
+  script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.yoco.com https://va.vercel-scripts.com;
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   img-src 'self' blob: data: https://images.unsplash.com https://*.yoco.com;
   font-src 'self' https://fonts.gstatic.com;
-  connect-src 'self' https://payments.yoco.com https://pay.yoco.com https://c.yoco.com https://js.yoco.com;
+  connect-src 'self' https://payments.yoco.com https://pay.yoco.com https://c.yoco.com https://js.yoco.com https://va.vercel-scripts.com;
   frame-src 'self' https://payments.yoco.com https://pay.yoco.com https://c.yoco.com https://js.yoco.com;
   object-src 'none';
   base-uri 'self';
