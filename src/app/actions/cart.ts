@@ -13,7 +13,10 @@ import {
   YocoReceiptSchema,
   type PricedCartSummary,
 } from "@/lib/security";
-import { createYocoCheckoutSession } from "@/lib/yoco";
+import {
+  createYocoCheckoutSession,
+  verifyYocoCheckoutSessionOnServer,
+} from "@/lib/yoco";
 
 export type FulfillmentStatus = "awaiting_picking" | "packed" | "dispatched";
 export type PaymentVerificationStatus =
@@ -247,9 +250,20 @@ export async function confirmYocoPaymentAction(rawInput: unknown): Promise<{
       };
     }
 
+    // Query Yoco Checkout API directly when a live/test hosted checkout ID (ch_...) exists
+    let resolvedReference = yocoReference;
+    if (pending.yocoCheckoutId.startsWith("ch_")) {
+      const apiStatus = await verifyYocoCheckoutSessionOnServer(
+        pending.yocoCheckoutId
+      );
+      if (apiStatus.verifiedPaid && apiStatus.paymentId) {
+        resolvedReference = apiStatus.paymentId;
+      }
+    }
+
     pending.paymentStatus = "paid_verified";
     pending.paidAt = new Date().toISOString();
-    pending.yocoReference = yocoReference;
+    pending.yocoReference = resolvedReference;
 
     PENDING_PAYMENT_ORDERS.delete(orderId);
     FULFILLMENT_QUEUE.unshift(pending);
@@ -266,6 +280,64 @@ export async function confirmYocoPaymentAction(rawInput: unknown): Promise<{
         err instanceof Error ? err.message : "Payment verification failed.",
     };
   }
+}
+
+/**
+ * Verifies an order when the customer returns from Yoco Hosted Checkout (?yoco_status=success&order_id=OBSD-...)
+ * by checking GET https://payments.yoco.com/api/checkouts/{checkoutId} on the server.
+ */
+export async function verifyYocoReturnOrderAction(rawOrderId: string): Promise<{
+  ok: boolean;
+  paid: boolean;
+  order?: FulfillmentOrderRecord;
+  queue?: FulfillmentOrderRecord[];
+}> {
+  const parsedId = OrderIdSchema.safeParse(rawOrderId);
+  if (!parsedId.success) {
+    return { ok: false, paid: false };
+  }
+
+  const orderId = parsedId.data;
+  const alreadyPaid = FULFILLMENT_QUEUE.find((o) => o.orderId === orderId);
+  if (alreadyPaid) {
+    return {
+      ok: true,
+      paid: true,
+      order: alreadyPaid,
+      queue: await getFulfillmentQueueAction(),
+    };
+  }
+
+  const pending = PENDING_PAYMENT_ORDERS.get(orderId);
+  if (!pending) {
+    return { ok: false, paid: false };
+  }
+
+  if (pending.yocoCheckoutId.startsWith("ch_")) {
+    const apiCheck = await verifyYocoCheckoutSessionOnServer(
+      pending.yocoCheckoutId
+    );
+    if (apiCheck.verifiedPaid) {
+      pending.paymentStatus = "paid_verified";
+      pending.paidAt = new Date().toISOString();
+      pending.yocoReference = apiCheck.paymentId || pending.yocoCheckoutId;
+      PENDING_PAYMENT_ORDERS.delete(orderId);
+      FULFILLMENT_QUEUE.unshift(pending);
+      return {
+        ok: true,
+        paid: true,
+        order: pending,
+        queue: await getFulfillmentQueueAction(),
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    paid: false,
+    order: pending,
+    queue: await getFulfillmentQueueAction(),
+  };
 }
 
 export async function quoteCartAction(

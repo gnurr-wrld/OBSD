@@ -31,6 +31,7 @@ import {
 import {
   submitOrderAction,
   confirmYocoPaymentAction,
+  verifyYocoReturnOrderAction,
   getFulfillmentQueueAction,
   advanceFulfillmentStatusAction,
   type FulfillmentOrderRecord,
@@ -129,6 +130,26 @@ export default function ObsistStorefront({
 
   useEffect(() => {
     getFulfillmentQueueAction().then(setFulfillmentQueue);
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const yocoStatus = params.get("yoco_status");
+      const returnedOrderId = params.get("order_id");
+      if (yocoStatus === "success" && returnedOrderId) {
+        verifyYocoReturnOrderAction(returnedOrderId).then((res) => {
+          if (res.queue) setFulfillmentQueue(res.queue);
+          if (res.ok && res.paid && res.order) {
+            setIsCartOpen(true);
+            setCheckoutStatus({
+              ok: true,
+              paid: true,
+              orderId: res.order.orderId,
+              message: `Yoco API Payment Verified (${res.order.yocoReference || res.order.yocoCheckoutId}). Order ${res.order.orderId} is PAID and in the Medusa Fulfillment Queue!`,
+            });
+          }
+        });
+      }
+    }
   }, []);
 
   // Recommended size calculation using gsap.utils.clamp

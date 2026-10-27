@@ -14,7 +14,8 @@ function getSafeYocoPaymentPageUrl(): string {
     if (
       parsed.protocol === "https:" &&
       (parsed.hostname === "pay.yoco.com" ||
-        parsed.hostname === "payments.yoco.com")
+        parsed.hostname === "payments.yoco.com" ||
+        parsed.hostname === "c.yoco.com")
     ) {
       return parsed.toString();
     }
@@ -58,10 +59,8 @@ export function buildYocoPaymentLinkUrl(
 }
 
 /**
- * Creates a Yoco Online Checkout session.
- * - If YOCO_SECRET_KEY is a REST API key (starts with sk_live_ or sk_test_), calls https://payments.yoco.com/api/checkouts.
- * - Otherwise (including when using a yoco_live_ plugin key or Payment Page link), resolves immediately
- *   to https://pay.yoco.com/obsessed-ltd?amount=...&reference=... with zero network latency.
+ * Creates a Yoco Online Checkout session via https://payments.yoco.com/api/checkouts.
+ * With sk_test_... or sk_live_..., returns a locked Yoco Hosted Checkout URL (https://c.yoco.com/checkout/ch_...).
  */
 export async function createYocoCheckoutSession(
   input: YocoCheckoutSessionInput
@@ -139,6 +138,66 @@ export async function createYocoCheckoutSession(
       checkoutId: `yoco_link_${input.orderId.toLowerCase()}`,
       redirectUrl: paymentLinkUrl,
     };
+  }
+}
+
+/**
+ * Queries Yoco's API directly (`GET https://payments.yoco.com/api/checkouts/{checkoutId}`)
+ * to verify whether a checkout session has actually been paid (`status === "completed"` or `"succeeded"`).
+ */
+export async function verifyYocoCheckoutSessionOnServer(
+  checkoutId: string
+): Promise<{
+  verifiedPaid: boolean;
+  status: string;
+  paymentId?: string;
+  amountZarCents?: number;
+}> {
+  const secretKey = process.env.YOCO_SECRET_KEY?.trim() || "";
+  if (
+    !checkoutId.startsWith("ch_") ||
+    (!secretKey.startsWith("sk_live_") && !secretKey.startsWith("sk_test_"))
+  ) {
+    return { verifiedPaid: false, status: "unverified" };
+  }
+
+  try {
+    const res = await fetch(
+      `https://payments.yoco.com/api/checkouts/${encodeURIComponent(checkoutId)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+        },
+        cache: "no-store",
+      }
+    );
+
+    if (!res.ok) {
+      return { verifiedPaid: false, status: `http_${res.status}` };
+    }
+
+    const data = (await res.json()) as {
+      id?: string;
+      status?: string;
+      paymentId?: string | null;
+      amount?: number;
+    };
+
+    const st = (data.status || "").toLowerCase();
+    const isPaid =
+      st === "completed" ||
+      st === "succeeded" ||
+      Boolean(data.paymentId && st !== "created" && st !== "failed");
+
+    return {
+      verifiedPaid: isPaid,
+      status: st || "unknown",
+      paymentId: data.paymentId || data.id,
+      amountZarCents: data.amount,
+    };
+  } catch {
+    return { verifiedPaid: false, status: "network_error" };
   }
 }
 
