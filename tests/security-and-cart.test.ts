@@ -5,6 +5,10 @@ import {
   CheckoutOrderSchema,
   verifySignature,
   checkRateLimit,
+  generateSecureOrderId,
+  OrderIdSchema,
+  signOrderIntent,
+  verifyOrderIntent,
 } from "../src/lib/security.ts";
 import { OBSD_PRODUCTS } from "../src/lib/medusa.ts";
 import {
@@ -150,7 +154,56 @@ assert.equal(
 assert.equal(paymentUrl.includes("amount=976.00"), true);
 assert.equal(paymentUrl.includes("reference=OBSD-8F4A2C19"), true);
 
-// 7. Verify rate limiter blocks excessive requests
+// 7. Verify split-line stock bypass protection & cryptographic Order Intent payment gating
+assert.throws(() => {
+  calculateVerifiedCartPricing(
+    [
+      { productId: "prod_obsd_set_02", size: "XL", quantity: 5 },
+      { productId: "prod_obsd_set_02", size: "XL", quantity: 5 },
+    ],
+    "NONE",
+    "ZAR"
+  );
+}, /Insufficient stock/);
+
+const id1 = generateSecureOrderId();
+const id2 = generateSecureOrderId();
+assert.notEqual(id1, id2);
+assert.equal(OrderIdSchema.safeParse(id1).success, true);
+
+const intentToken = signOrderIntent({
+  orderId: id1,
+  amountZarCents: 62500,
+  email: "laidinjansen13@gmail.com",
+  cartSignature: singleZar.signature,
+});
+assert.equal(
+  verifyOrderIntent(
+    {
+      orderId: id1,
+      amountZarCents: 62500,
+      email: "laidinjansen13@gmail.com",
+      cartSignature: singleZar.signature,
+    },
+    intentToken
+  ),
+  true
+);
+// Tampered amount or orderId must fail verification before entering Fulfillment Queue
+assert.equal(
+  verifyOrderIntent(
+    {
+      orderId: id1,
+      amountZarCents: 100, // tampered price
+      email: "laidinjansen13@gmail.com",
+      cartSignature: singleZar.signature,
+    },
+    intentToken
+  ),
+  false
+);
+
+// 8. Verify rate limiter blocks excessive requests
 for (let i = 0; i < 3; i++) {
   assert.equal(checkRateLimit("test-ip-zar", 3, 60_000).allowed, true);
 }

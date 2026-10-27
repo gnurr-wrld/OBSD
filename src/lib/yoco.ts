@@ -1,8 +1,30 @@
 import crypto from "node:crypto";
 
-export const YOCO_PAYMENT_PAGE_URL =
-  process.env.NEXT_PUBLIC_YOCO_PAYMENT_LINK ||
-  "https://pay.yoco.com/obsessed-ltd";
+const DEFAULT_YOCO_LINK = "https://pay.yoco.com/obsessed-ltd";
+
+/**
+ * Enforces an allowlist on the Yoco payment host to prevent Open Redirect vulnerabilities.
+ */
+function getSafeYocoPaymentPageUrl(): string {
+  const candidate = (
+    process.env.NEXT_PUBLIC_YOCO_PAYMENT_LINK || DEFAULT_YOCO_LINK
+  ).trim();
+  try {
+    const parsed = new URL(candidate);
+    if (
+      parsed.protocol === "https:" &&
+      (parsed.hostname === "pay.yoco.com" ||
+        parsed.hostname === "payments.yoco.com")
+    ) {
+      return parsed.toString();
+    }
+  } catch {
+    // Fall through to safe default
+  }
+  return DEFAULT_YOCO_LINK;
+}
+
+export const YOCO_PAYMENT_PAGE_URL = getSafeYocoPaymentPageUrl();
 
 export interface YocoCheckoutSessionInput {
   orderId: string;
@@ -33,7 +55,7 @@ export function buildYocoPaymentLinkUrl(
   const firstName = nameParts[0] || "";
   const lastName = nameParts.slice(1).join(" ") || "";
 
-  const url = new URL(YOCO_PAYMENT_PAGE_URL);
+  const url = new URL(getSafeYocoPaymentPageUrl());
   url.searchParams.set("amount", amountRands);
   url.searchParams.set("currency", "ZAR");
   url.searchParams.set("reference", input.orderId);
@@ -99,7 +121,6 @@ export async function createYocoCheckoutSession(
     });
 
     if (!response.ok) {
-      // Fallback to direct Yoco Payment Link if API key is not yet activated
       return {
         ok: true,
         mode: "payment-link",
@@ -173,7 +194,6 @@ export function verifyYocoWebhookSignature(params: {
 
   const expectedBuf = Buffer.from(expectedBase64, "utf8");
 
-  // Yoco/Svix header may contain space-delimited "v1,<base64>" entries
   const candidates = params.webhookSignature.split(" ");
   for (const entry of candidates) {
     const parts = entry.split(",");

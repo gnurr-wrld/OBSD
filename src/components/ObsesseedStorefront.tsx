@@ -30,6 +30,7 @@ import {
 } from "@/lib/medusa";
 import {
   submitOrderAction,
+  confirmYocoPaymentAction,
   getFulfillmentQueueAction,
   advanceFulfillmentStatusAction,
   type FulfillmentOrderRecord,
@@ -108,10 +109,14 @@ export default function ObsistStorefront({
   const [email, setEmail] = useState("");
   const [shippingAddress, setShippingAddress] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
+  const [yocoReferenceInput, setYocoReferenceInput] = useState("");
   const [checkoutStatus, setCheckoutStatus] = useState<{
     ok?: boolean;
+    paid?: boolean;
     message?: string;
     orderId?: string;
+    paymentToken?: string;
     yocoUrl?: string;
   } | null>(null);
 
@@ -401,21 +406,15 @@ export default function ObsistStorefront({
     });
 
     setIsSubmitting(false);
-    if (response.ok && response.summary) {
-      if (response.queueRecord) {
-        setFulfillmentQueue((prev) => [
-          response.queueRecord!,
-          ...prev.filter((o) => o.orderId !== response.queueRecord!.orderId),
-        ]);
-      } else {
-        const latest = await getFulfillmentQueueAction();
-        setFulfillmentQueue(latest);
-      }
+    if (response.ok && response.summary && response.orderId) {
+      setYocoReferenceInput(`YOCO-${response.orderId.slice(-6)}`);
       setCheckoutStatus({
         ok: true,
+        paid: false,
         orderId: response.orderId,
+        paymentToken: response.paymentToken,
         yocoUrl: response.yocoRedirectUrl,
-        message: `Verified (${formatCents(response.summary.totalCents, response.summary.currency)}) & logged to Medusa Fulfillment Queue. Opening Yoco Payment Gateway (pay.yoco.com/obsessed-ltd)...`,
+        message: `Step 1 Complete: Order ${response.orderId} (${formatCents(response.summary.totalCents, response.summary.currency)}) is staged & awaiting Yoco payment. Orders only enter the Fulfillment Queue once Yoco payment is verified.`,
       });
       if (response.yocoRedirectUrl) {
         window.open(response.yocoRedirectUrl, "_blank", "noopener,noreferrer");
@@ -425,6 +424,41 @@ export default function ObsistStorefront({
         ok: false,
         message: response.error || "Security verification failed.",
       });
+    }
+  }
+
+  async function handleConfirmYocoPayment() {
+    if (!checkoutStatus?.orderId || !checkoutStatus?.paymentToken) return;
+    setIsConfirmingPayment(true);
+    const res = await confirmYocoPaymentAction({
+      orderId: checkoutStatus.orderId,
+      paymentToken: checkoutStatus.paymentToken,
+      yocoReference:
+        yocoReferenceInput.trim() || `YOCO-${checkoutStatus.orderId.slice(-6)}`,
+    });
+    setIsConfirmingPayment(false);
+
+    if (res.ok && res.queue) {
+      setFulfillmentQueue(res.queue);
+      setCheckoutStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              paid: true,
+              message: `Yoco Payment Verified (${res.order?.yocoReference}). Order ${prev.orderId} is now PAID and dispatched to the Medusa Fulfillment Queue!`,
+            }
+          : null
+      );
+    } else {
+      setCheckoutStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              ok: false,
+              message: res.error || "Could not verify Yoco payment.",
+            }
+          : null
+      );
     }
   }
 
@@ -1573,37 +1607,92 @@ export default function ObsistStorefront({
                 {checkoutStatus && (
                   <div
                     role="status"
-                    className={`p-3.5 rounded-2xl text-xs border space-y-2 ${checkoutStatus.ok
+                    className={`p-4 rounded-2xl text-xs border space-y-2.5 ${checkoutStatus.ok
                       ? "bg-[#172A1E] text-[#F5F1E9] border-[#284232]"
                       : "bg-red-950 text-red-100 border-red-800"
                       }`}
                   >
                     {checkoutStatus.ok && (
-                      <div className="flex items-center gap-1.5 font-bold text-[#D4AF37]">
-                        <Check className="w-4 h-4" />
-                        <span>Order Confirmed: {checkoutStatus.orderId}</span>
+                      <div className="flex items-center justify-between gap-2 font-bold text-[#D4AF37]">
+                        <span className="flex items-center gap-1.5">
+                          <Check className="w-4 h-4" />
+                          <span>
+                            {checkoutStatus.paid
+                              ? `Paid & Queued: ${checkoutStatus.orderId}`
+                              : `Awaiting Yoco Payment: ${checkoutStatus.orderId}`}
+                          </span>
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider ${
+                            checkoutStatus.paid
+                              ? "bg-emerald-900/80 text-emerald-200 border border-emerald-500/40"
+                              : "bg-amber-900/80 text-amber-200 border border-amber-500/40"
+                          }`}
+                        >
+                          {checkoutStatus.paid ? "PAID" : "UNPAID"}
+                        </span>
                       </div>
                     )}
-                    <p>{checkoutStatus.message}</p>
+                    <p className="leading-relaxed text-[#EAE3D5]/90">
+                      {checkoutStatus.message}
+                    </p>
+
                     {checkoutStatus.ok && checkoutStatus.yocoUrl && (
                       <a
                         href={checkoutStatus.yocoUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="btn-glass-accent w-full py-2.5 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                        className="btn-glass-accent w-full py-2.5 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>Pay Now on Yoco (pay.yoco.com/obsessed-ltd) →</span>
+                        <span>
+                          1. Pay on Yoco (pay.yoco.com/obsessed-ltd) →
+                        </span>
                       </a>
                     )}
-                    {checkoutStatus.ok && (
+
+                    {checkoutStatus.ok && !checkoutStatus.paid && (
+                      <div className="pt-2 border-t border-white/15 space-y-2">
+                        <label
+                          htmlFor="yoco-ref-input"
+                          className="block text-[10px] uppercase tracking-wider text-[#D4AF37] font-semibold"
+                        >
+                          Yoco Payment Reference / Receipt Code
+                        </label>
+                        <input
+                          id="yoco-ref-input"
+                          type="text"
+                          value={yocoReferenceInput}
+                          onChange={(e) =>
+                            setYocoReferenceInput(e.target.value)
+                          }
+                          placeholder="e.g. YOCO-8F4A2C"
+                          className="w-full px-3 py-2 rounded-lg bg-[#0E1B13] border border-[#284232] text-xs text-[#F5F1E9]"
+                        />
+                        <button
+                          type="button"
+                          disabled={isConfirmingPayment}
+                          onClick={handleConfirmYocoPayment}
+                          className="btn-glass-primary w-full py-2.5 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>
+                            {isConfirmingPayment
+                              ? "Verifying Yoco Payment..."
+                              : "2. Confirm Paid & Add to Fulfillment Queue →"}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
+                    {checkoutStatus.ok && checkoutStatus.paid && (
                       <button
                         type="button"
                         onClick={() => {
                           setIsCartOpen(false);
                           setIsFulfillmentOpen(true);
                         }}
-                        className="btn-glass-primary w-full py-2 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                        className="btn-glass-primary w-full py-2.5 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer mt-2"
                       >
                         <PackageCheck className="w-3.5 h-3.5" />
                         <span>Open Medusa Fulfillment Queue →</span>
@@ -1664,9 +1753,12 @@ export default function ObsistStorefront({
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#D2C8B8]/80 pb-3">
                       <div>
-                        <div className="flex items-center gap-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-serif-display text-xl font-bold text-[#0E1B13]">
                             {order.orderId}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-900 text-emerald-100 text-[10px] font-bold uppercase tracking-wider">
+                            PAID • {order.yocoReference || "YOCO VERIFIED"}
                           </span>
                           <span className="px-2.5 py-0.5 rounded-full bg-[#172A1E] text-[#D4AF37] text-[10px] font-semibold uppercase tracking-wider">
                             {statusLabel}

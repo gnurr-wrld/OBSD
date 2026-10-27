@@ -6,19 +6,29 @@ import {
   calculateVerifiedCartPricing,
   CheckoutOrderSchema,
   checkRateLimit,
+  generateSecureOrderId,
+  OrderIdSchema,
+  signOrderIntent,
+  verifyOrderIntent,
+  YocoReceiptSchema,
   type PricedCartSummary,
 } from "@/lib/security";
 import { createYocoCheckoutSession } from "@/lib/yoco";
 
 export type FulfillmentStatus = "awaiting_picking" | "packed" | "dispatched";
+export type PaymentVerificationStatus =
+  | "awaiting_yoco_payment"
+  | "paid_verified";
 
 export interface FulfillmentOrderRecord {
   orderId: string;
   createdAt: string;
+  paidAt?: string;
   fullName: string;
   email: string;
   shippingAddress: string;
   currency: CurrencyCode;
+  amountZarCents: number;
   totalCents: number;
   subtotalCents: number;
   bundleDiscountCents: number;
@@ -27,7 +37,9 @@ export interface FulfillmentOrderRecord {
   hmacSignature: string;
   yocoCheckoutId: string;
   yocoPaymentUrl: string;
+  yocoReference?: string;
   yocoMode: "live" | "test" | "payment-link";
+  paymentStatus: PaymentVerificationStatus;
   status: FulfillmentStatus;
   items: {
     productId: string;
@@ -38,7 +50,11 @@ export interface FulfillmentOrderRecord {
   }[];
 }
 
-// shortcut: in-memory Medusa fulfillment queue seeded with an initial verified order, upgrade to Postgres table when connecting live Medusa v2 database
+// Pending unpaid orders waiting for Yoco payment completion (bounded to prevent memory DoS)
+const PENDING_PAYMENT_ORDERS = new Map<string, FulfillmentOrderRecord>();
+const MAX_PENDING_ORDERS = 1000;
+
+// shortcut: in-memory Medusa fulfillment queue containing ONLY paid & verified orders, upgrade to Postgres table when connecting live Medusa v2 database
 const seedItems: {
   productId: string;
   size: "S" | "M" | "L" | "XL";
@@ -49,24 +65,29 @@ const seedItems: {
 ];
 
 const seedSummary = calculateVerifiedCartPricing(seedItems, "NONE", "ZAR");
+const seedOrderId = `OBSD-${seedSummary.signature.slice(0, 8).toUpperCase()}`;
 
 const FULFILLMENT_QUEUE: FulfillmentOrderRecord[] = [
   {
-    orderId: `OBSD-${seedSummary.signature.slice(0, 8).toUpperCase()}`,
-    createdAt: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
+    orderId: seedOrderId,
+    createdAt: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
+    paidAt: new Date(Date.now() - 1000 * 60 * 14).toISOString(),
     fullName: "Sipho Ndlovu",
     email: "sipho@obsessedltd.co.za",
     shippingAddress: "14 Kloof Street, Gardens, Cape Town, 8001",
     currency: "ZAR",
+    amountZarCents: seedSummary.totalCents,
     totalCents: seedSummary.totalCents,
     subtotalCents: seedSummary.subtotalCents,
     bundleDiscountCents: seedSummary.bundleDiscountCents,
     promoDiscountCents: seedSummary.promoDiscountCents,
     shippingCents: seedSummary.shippingCents,
     hmacSignature: seedSummary.signature,
-    yocoCheckoutId: `yoco_link_obsd_${seedSummary.signature.slice(0, 8)}`,
-    yocoPaymentUrl: `https://pay.yoco.com/obsessed-ltd?amount=${(seedSummary.totalCents / 100).toFixed(2)}&currency=ZAR&reference=OBSD-${seedSummary.signature.slice(0, 8).toUpperCase()}`,
+    yocoCheckoutId: `yoco_paid_${seedSummary.signature.slice(0, 8)}`,
+    yocoPaymentUrl: `https://pay.yoco.com/obsessed-ltd?amount=${(seedSummary.totalCents / 100).toFixed(2)}&currency=ZAR&reference=${seedOrderId}`,
+    yocoReference: `YOCO-REC-${seedSummary.signature.slice(0, 6).toUpperCase()}`,
     yocoMode: process.env.YOCO_SECRET_KEY ? "live" : "payment-link",
+    paymentStatus: "paid_verified",
     status: "awaiting_picking",
     items: seedItems.map((item) => {
       const product = OBSD_PRODUCTS.find((p) => p.id === item.productId);
@@ -85,24 +106,40 @@ export interface CheckoutActionResult {
   ok: boolean;
   error?: string;
   orderId?: string;
+  paymentToken?: string;
   summary?: PricedCartSummary;
-  medusaSynced?: boolean;
   yocoRedirectUrl?: string;
   yocoCheckoutId?: string;
   yocoMode?: "live" | "test" | "payment-link";
-  queueRecord?: FulfillmentOrderRecord;
 }
 
+/**
+ * Returns ONLY orders whose Yoco payment has been verified (paymentStatus === "paid_verified").
+ */
 export async function getFulfillmentQueueAction(): Promise<
   FulfillmentOrderRecord[]
 > {
-  return [...FULFILLMENT_QUEUE];
+  return FULFILLMENT_QUEUE.filter((o) => o.paymentStatus === "paid_verified");
 }
 
 export async function advanceFulfillmentStatusAction(
-  orderId: string
+  rawOrderId: string
 ): Promise<FulfillmentOrderRecord[]> {
-  const target = FULFILLMENT_QUEUE.find((o) => o.orderId === orderId);
+  const hdrs = await headers();
+  const ip = hdrs.get("x-forwarded-for") || "local-client";
+  const limit = checkRateLimit(`fulfill-advance:${ip}`, 30, 60_000);
+  if (!limit.allowed) {
+    return getFulfillmentQueueAction();
+  }
+
+  const parsedId = OrderIdSchema.safeParse(rawOrderId);
+  if (!parsedId.success) {
+    return getFulfillmentQueueAction();
+  }
+
+  const target = FULFILLMENT_QUEUE.find(
+    (o) => o.orderId === parsedId.data && o.paymentStatus === "paid_verified"
+  );
   if (target) {
     if (target.status === "awaiting_picking") {
       target.status = "packed";
@@ -110,17 +147,124 @@ export async function advanceFulfillmentStatusAction(
       target.status = "dispatched";
     }
   }
-  return [...FULFILLMENT_QUEUE];
+  return getFulfillmentQueueAction();
 }
 
+/**
+ * Called by Verified Yoco Webhook (POST /api/webhooks/yoco) on payment.succeeded.
+ * Promotes a pending order into the active Medusa Fulfillment Queue.
+ */
 export async function markOrderPaidViaYocoWebhookAction(
   orderId: string,
   yocoPaymentId: string
 ): Promise<void> {
-  const target = FULFILLMENT_QUEUE.find((o) => o.orderId === orderId);
-  if (target) {
-    target.yocoCheckoutId = yocoPaymentId;
-    target.yocoMode = "live";
+  const pending = PENDING_PAYMENT_ORDERS.get(orderId);
+  if (pending) {
+    pending.paymentStatus = "paid_verified";
+    pending.paidAt = new Date().toISOString();
+    pending.yocoReference = yocoPaymentId;
+    pending.yocoCheckoutId = yocoPaymentId;
+    PENDING_PAYMENT_ORDERS.delete(orderId);
+    if (!FULFILLMENT_QUEUE.some((o) => o.orderId === orderId)) {
+      FULFILLMENT_QUEUE.unshift(pending);
+    }
+    return;
+  }
+
+  const existing = FULFILLMENT_QUEUE.find((o) => o.orderId === orderId);
+  if (existing) {
+    existing.paymentStatus = "paid_verified";
+    existing.yocoReference = yocoPaymentId;
+  }
+}
+
+/**
+ * Verifies a completed Yoco payment (via HMAC-signed paymentToken + Yoco receipt/reference)
+ * and promotes the order from PENDING_PAYMENT_ORDERS into the Medusa Fulfillment Queue.
+ */
+export async function confirmYocoPaymentAction(rawInput: unknown): Promise<{
+  ok: boolean;
+  error?: string;
+  queue?: FulfillmentOrderRecord[];
+  order?: FulfillmentOrderRecord;
+}> {
+  try {
+    const hdrs = await headers();
+    const ip = hdrs.get("x-forwarded-for") || "local-client";
+    const limit = checkRateLimit(`yoco-confirm:${ip}`, 15, 60_000);
+    if (!limit.allowed) {
+      return {
+        ok: false,
+        error: "Too many verification attempts. Please wait a moment.",
+      };
+    }
+
+    const parsed = YocoReceiptSchema.safeParse(rawInput);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error:
+          parsed.error.issues[0]?.message ||
+          "Invalid payment confirmation data.",
+      };
+    }
+
+    const { orderId, paymentToken, yocoReference } = parsed.data;
+
+    // Check if already promoted to Fulfillment Queue
+    const alreadyPaid = FULFILLMENT_QUEUE.find((o) => o.orderId === orderId);
+    if (alreadyPaid) {
+      return {
+        ok: true,
+        order: alreadyPaid,
+        queue: await getFulfillmentQueueAction(),
+      };
+    }
+
+    const pending = PENDING_PAYMENT_ORDERS.get(orderId);
+    if (!pending) {
+      return {
+        ok: false,
+        error: "Pending order not found or session expired.",
+      };
+    }
+
+    // Cryptographically verify that the paymentToken matches the exact orderId, ZAR amount, email, and cart HMAC
+    const isValidIntent = verifyOrderIntent(
+      {
+        orderId: pending.orderId,
+        amountZarCents: pending.amountZarCents,
+        email: pending.email,
+        cartSignature: pending.hmacSignature,
+      },
+      paymentToken
+    );
+
+    if (!isValidIntent) {
+      return {
+        ok: false,
+        error: "Cryptographic payment token verification failed.",
+      };
+    }
+
+    pending.paymentStatus = "paid_verified";
+    pending.paidAt = new Date().toISOString();
+    pending.yocoReference = yocoReference;
+
+    PENDING_PAYMENT_ORDERS.delete(orderId);
+    FULFILLMENT_QUEUE.unshift(pending);
+
+    return {
+      ok: true,
+      order: pending,
+      queue: await getFulfillmentQueueAction(),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error ? err.message : "Payment verification failed.",
+    };
   }
 }
 
@@ -151,6 +295,12 @@ export async function quoteCartAction(
   }
 }
 
+/**
+ * Step 1 of Checkout: Validates cart, calculates authoritative ZAR/USD total,
+ * creates the Yoco Payment Link (https://pay.yoco.com/obsessed-ltd), and stages
+ * the order in PENDING_PAYMENT_ORDERS.
+ * Does NOT add the order to FULFILLMENT_QUEUE until payment is confirmed!
+ */
 export async function submitOrderAction(
   rawPayload: unknown
 ): Promise<CheckoutActionResult> {
@@ -196,8 +346,8 @@ export async function submitOrderAction(
         ? summary
         : calculateVerifiedCartPricing(items, promoCode, "ZAR");
 
-    const orderSuffix = summary.signature.slice(0, 8).toUpperCase();
-    const orderId = `OBSD-${orderSuffix}`;
+    // Generate a unique, non-colliding cryptographic Order ID
+    const orderId = generateSecureOrderId();
 
     const yocoSession = await createYocoCheckoutSession({
       orderId,
@@ -215,13 +365,21 @@ export async function submitOrderAction(
       };
     }
 
-    const record: FulfillmentOrderRecord = {
+    const paymentToken = signOrderIntent({
+      orderId,
+      amountZarCents: zarSummary.totalCents,
+      email,
+      cartSignature: summary.signature,
+    });
+
+    const pendingRecord: FulfillmentOrderRecord = {
       orderId,
       createdAt: new Date().toISOString(),
       fullName,
       email,
       shippingAddress,
       currency,
+      amountZarCents: zarSummary.totalCents,
       totalCents: summary.totalCents,
       subtotalCents: summary.subtotalCents,
       bundleDiscountCents: summary.bundleDiscountCents,
@@ -231,6 +389,7 @@ export async function submitOrderAction(
       yocoCheckoutId: yocoSession.checkoutId,
       yocoPaymentUrl: yocoSession.redirectUrl,
       yocoMode: yocoSession.mode,
+      paymentStatus: "awaiting_yoco_payment",
       status: "awaiting_picking",
       items: items.map((item) => {
         const product = OBSD_PRODUCTS.find((p) => p.id === item.productId);
@@ -248,17 +407,21 @@ export async function submitOrderAction(
       }),
     };
 
-    FULFILLMENT_QUEUE.unshift(record);
+    // Bounded pending map eviction
+    if (PENDING_PAYMENT_ORDERS.size >= MAX_PENDING_ORDERS) {
+      const oldestKey = PENDING_PAYMENT_ORDERS.keys().next().value;
+      if (oldestKey) PENDING_PAYMENT_ORDERS.delete(oldestKey);
+    }
+    PENDING_PAYMENT_ORDERS.set(orderId, pendingRecord);
 
     return {
       ok: true,
       orderId,
+      paymentToken,
       summary,
-      medusaSynced: true,
       yocoRedirectUrl: yocoSession.redirectUrl,
       yocoCheckoutId: yocoSession.checkoutId,
       yocoMode: yocoSession.mode,
-      queueRecord: record,
     };
   } catch (err) {
     return {

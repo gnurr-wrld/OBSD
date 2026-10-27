@@ -2,11 +2,27 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { getProductById, type CurrencyCode } from "./medusa.ts";
 
-// shortcut: in-memory sliding-window rate limiter per IP/client fingerprint, upgrade to Redis/Upstash in multi-region edge deployment
+// shortcut: bounded in-memory sliding-window rate limiter per IP/client fingerprint, upgrade to Redis/Upstash in multi-region edge deployment
 const rateLimitBucket = new Map<string, { count: number; resetAt: number }>();
+const MAX_RATE_LIMIT_ENTRIES = 5000;
 
 const SECRET_KEY =
-  process.env.OBSD_CART_HMAC_SECRET || "obsd_forest_sanctuary_hmac_secret_2026_key";
+  process.env.OBSD_CART_HMAC_SECRET ||
+  "obsd_forest_sanctuary_hmac_secret_2026_key";
+
+export const OrderIdSchema = z
+  .string()
+  .regex(/^OBSD-[A-F0-9]{8,16}$/, "Invalid OBSD Order ID format");
+
+export const YocoReceiptSchema = z.object({
+  orderId: OrderIdSchema,
+  paymentToken: z.string().regex(/^[a-f0-9]{64}$/, "Invalid HMAC payment token"),
+  yocoReference: z
+    .string()
+    .min(4)
+    .max(80)
+    .transform((s) => s.replace(/[<>"'&\x00-\x1F\x7F]/g, "").trim()),
+});
 
 export const CartItemInputSchema = z.object({
   productId: z.string().regex(/^prod_obsd_[a-z0-9_]+$/),
@@ -22,12 +38,12 @@ export const CheckoutOrderSchema = z.object({
     .string()
     .min(2)
     .max(80)
-    .transform((s) => s.replace(/[<>]/g, "").trim()),
+    .transform((s) => s.replace(/[<>"'`\x00-\x1F\x7F]/g, "").trim()),
   shippingAddress: z
     .string()
     .min(5)
     .max(160)
-    .transform((s) => s.replace(/[<>]/g, "").trim()),
+    .transform((s) => s.replace(/[<>"'`\x00-\x1F\x7F]/g, "").trim()),
   promoCode: z
     .enum(["NONE", "OBSD10", "SANCTUARY"])
     .optional()
@@ -56,6 +72,20 @@ export function checkRateLimit(
   windowMs = 60_000
 ): { allowed: boolean; remaining: number } {
   const now = Date.now();
+
+  // Prevent unbounded memory growth under IP-spoofing floods
+  if (rateLimitBucket.size > MAX_RATE_LIMIT_ENTRIES) {
+    for (const [k, v] of rateLimitBucket.entries()) {
+      if (now > v.resetAt) {
+        rateLimitBucket.delete(k);
+      }
+    }
+    if (rateLimitBucket.size > MAX_RATE_LIMIT_ENTRIES) {
+      const oldestKey = rateLimitBucket.keys().next().value;
+      if (oldestKey) rateLimitBucket.delete(oldestKey);
+    }
+  }
+
   const entry = rateLimitBucket.get(clientKey);
   if (!entry || now > entry.resetAt) {
     rateLimitBucket.set(clientKey, { count: 1, resetAt: now + windowMs });
@@ -68,6 +98,11 @@ export function checkRateLimit(
   return { allowed: true, remaining: maxRequests - entry.count };
 }
 
+export function generateSecureOrderId(): string {
+  const randomHex = crypto.randomBytes(5).toString("hex").toUpperCase();
+  return `OBSD-${randomHex}`;
+}
+
 export function signPayload(payloadString: string): string {
   return crypto
     .createHmac("sha256", SECRET_KEY)
@@ -75,12 +110,42 @@ export function signPayload(payloadString: string): string {
     .digest("hex");
 }
 
-export function verifySignature(payloadString: string, signature: string): boolean {
+export function verifySignature(
+  payloadString: string,
+  signature: string
+): boolean {
   const expected = signPayload(payloadString);
   const a = Buffer.from(expected, "utf8");
   const b = Buffer.from(signature, "utf8");
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Cryptographically binds an orderId, ZAR amount, customer email, and cart signature
+ * into a tamper-proof checkout intent token.
+ */
+export function signOrderIntent(params: {
+  orderId: string;
+  amountZarCents: number;
+  email: string;
+  cartSignature: string;
+}): string {
+  const canonical = `intent:${params.orderId}:${params.amountZarCents}:${params.email.toLowerCase()}:${params.cartSignature}`;
+  return signPayload(canonical);
+}
+
+export function verifyOrderIntent(
+  params: {
+    orderId: string;
+    amountZarCents: number;
+    email: string;
+    cartSignature: string;
+  },
+  token: string
+): boolean {
+  const canonical = `intent:${params.orderId}:${params.amountZarCents}:${params.email.toLowerCase()}:${params.cartSignature}`;
+  return verifySignature(canonical, token);
 }
 
 /**
@@ -98,17 +163,38 @@ export function calculateVerifiedCartPricing(
 ): PricedCartSummary {
   const parsedItems = z.array(CartItemInputSchema).max(20).parse(rawItems);
 
+  // Merge duplicate productId + size entries before stock check to prevent split-line stock bypass
+  const consolidated = new Map<
+    string,
+    { productId: string; size: "S" | "M" | "L" | "XL"; quantity: number }
+  >();
+  for (const item of parsedItems) {
+    const key = `${item.productId}:${item.size}`;
+    const prev = consolidated.get(key);
+    const nextQty = (prev?.quantity || 0) + item.quantity;
+    if (nextQty > 10) {
+      throw new Error(`Maximum 10 units per garment size (${item.size}).`);
+    }
+    consolidated.set(key, {
+      productId: item.productId,
+      size: item.size,
+      quantity: nextQty,
+    });
+  }
+
   let subtotalCents = 0;
   let totalQuantity = 0;
 
-  for (const item of parsedItems) {
+  for (const item of consolidated.values()) {
     const product = getProductById(item.productId);
     if (!product) {
       throw new Error(`Invalid product ID: ${item.productId}`);
     }
     const variant = product.variants.find((v) => v.size === item.size);
     if (!variant || variant.stock < item.quantity) {
-      throw new Error(`Insufficient stock for ${product.title} (${item.size})`);
+      throw new Error(
+        `Insufficient stock for ${product.title} (${item.size})`
+      );
     }
     const unitCents =
       currency === "ZAR" ? product.priceZarCents : product.priceUsdCents;
@@ -135,7 +221,10 @@ export function calculateVerifiedCartPricing(
     promoDiscountCents = Math.round(afterBundleCents * 0.1);
   }
 
-  const netMerchandiseCents = Math.max(0, afterBundleCents - promoDiscountCents);
+  const netMerchandiseCents = Math.max(
+    0,
+    afterBundleCents - promoDiscountCents
+  );
   const freeShippingThreshold = currency === "ZAR" ? 100000 : 6000;
   const standardShippingFee = currency === "ZAR" ? 7500 : 500; // R75 or $5
   const freeShippingUnlocked =
