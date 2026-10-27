@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { useGSAP } from "@gsap/react";
@@ -19,6 +19,8 @@ import {
   Lock,
   Layers,
   Globe,
+  PackageCheck,
+  Truck,
 } from "lucide-react";
 import {
   formatCurrencyPrice,
@@ -26,7 +28,12 @@ import {
   type CurrencyCode,
   type Product,
 } from "@/lib/medusa";
-import { submitOrderAction } from "@/app/actions/cart";
+import {
+  submitOrderAction,
+  getFulfillmentQueueAction,
+  advanceFulfillmentStatusAction,
+  type FulfillmentOrderRecord,
+} from "@/app/actions/cart";
 
 gsap.registerPlugin(ScrollTrigger, useGSAP);
 
@@ -94,6 +101,16 @@ export default function ObsistStorefront({
     message?: string;
     orderId?: string;
   } | null>(null);
+
+  // Medusa Fulfillment Queue state
+  const [isFulfillmentOpen, setIsFulfillmentOpen] = useState(false);
+  const [fulfillmentQueue, setFulfillmentQueue] = useState<
+    FulfillmentOrderRecord[]
+  >([]);
+
+  useEffect(() => {
+    getFulfillmentQueueAction().then(setFulfillmentQueue);
+  }, []);
 
   // Recommended size calculation using gsap.utils.clamp
   const recommendedSize = useMemo<"S" | "M" | "L" | "XL">(() => {
@@ -371,6 +388,15 @@ export default function ObsistStorefront({
 
     setIsSubmitting(false);
     if (response.ok && response.summary) {
+      if (response.queueRecord) {
+        setFulfillmentQueue((prev) => [
+          response.queueRecord!,
+          ...prev.filter((o) => o.orderId !== response.queueRecord!.orderId),
+        ]);
+      } else {
+        const latest = await getFulfillmentQueueAction();
+        setFulfillmentQueue(latest);
+      }
       setCheckoutStatus({
         ok: true,
         orderId: response.orderId,
@@ -492,6 +518,23 @@ export default function ObsistStorefront({
                 USD
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                const latest = await getFulfillmentQueueAction();
+                setFulfillmentQueue(latest);
+                setIsFulfillmentOpen(true);
+              }}
+              aria-label="Open Medusa Fulfillment Queue"
+              className="btn-glass-light flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold tracking-wider cursor-pointer"
+            >
+              <PackageCheck className="w-4 h-4" />
+              <span className="hidden md:inline">FULFILLMENT</span>
+              <span className="px-1.5 py-0.5 rounded-full bg-black/10 text-[10px] font-bold">
+                {fulfillmentQueue.length}
+              </span>
+            </button>
 
             <button
               type="button"
@@ -1434,22 +1477,170 @@ export default function ObsistStorefront({
                 {checkoutStatus && (
                   <div
                     role="status"
-                    className={`p-3 rounded-xl text-xs border ${checkoutStatus.ok
+                    className={`p-3.5 rounded-2xl text-xs border space-y-2 ${checkoutStatus.ok
                       ? "bg-[#172A1E] text-[#F5F1E9] border-[#284232]"
                       : "bg-red-950 text-red-100 border-red-800"
                       }`}
                   >
                     {checkoutStatus.ok && (
-                      <div className="flex items-center gap-1.5 font-bold text-[#A7F3D0] mb-1">
+                      <div className="flex items-center gap-1.5 font-bold text-[#D4AF37]">
                         <Check className="w-4 h-4" />
                         <span>Order Confirmed: {checkoutStatus.orderId}</span>
                       </div>
                     )}
                     <p>{checkoutStatus.message}</p>
+                    {checkoutStatus.ok && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCartOpen(false);
+                          setIsFulfillmentOpen(true);
+                        }}
+                        className="btn-glass-primary w-full py-2 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                      >
+                        <PackageCheck className="w-3.5 h-3.5" />
+                        <span>Open Medusa Fulfillment Queue →</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 11. Medusa v2 Fulfillment Queue Modal */}
+      {isFulfillmentOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Obsessed LTD Medusa Fulfillment Queue"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div className="bg-[#F5F1E9] text-[#0E1B13] w-full max-w-3xl max-h-[88vh] rounded-3xl shadow-2xl border border-[#D2C8B8] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-6 bg-[#172A1E] text-[#F5F1E9] flex items-center justify-between border-b border-[#284232]">
+              <div>
+                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>MEDUSA V2 FULFILLMENT ENGINE • HMAC-SHA256 VERIFIED</span>
+                </div>
+                <h2 className="font-serif-display text-2xl sm:text-3xl font-medium mt-0.5">
+                  Obsessed LTD (OBSD) Fulfillment Queue ({fulfillmentQueue.length})
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFulfillmentOpen(false)}
+                aria-label="Close fulfillment queue"
+                className="btn-glass-frost-dark p-2.5 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Queue List */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              {fulfillmentQueue.map((order) => {
+                const statusLabel =
+                  order.status === "awaiting_picking"
+                    ? "Awaiting Warehouse Pick"
+                    : order.status === "packed"
+                      ? "Packed & Kraft Sealed"
+                      : "Dispatched via Express Courier";
+
+                return (
+                  <div
+                    key={order.orderId}
+                    className="p-5 rounded-2xl bg-[#EAE3D5]/75 border border-[#D2C8B8] space-y-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#D2C8B8]/80 pb-3">
+                      <div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-serif-display text-xl font-bold text-[#0E1B13]">
+                            {order.orderId}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#172A1E] text-[#D4AF37] text-[10px] font-semibold uppercase tracking-wider">
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#4A4F4B] mt-0.5">
+                          <strong>{order.fullName}</strong> ({order.email}) •{" "}
+                          {order.shippingAddress}
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-sm font-bold text-[#0E1B13]">
+                          {formatCents(order.totalCents, order.currency)} (
+                          {order.currency})
+                        </div>
+                        <div className="text-[10px] text-[#4A4F4B]">
+                          {new Date(order.createdAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Line Items */}
+                    <div className="space-y-1.5">
+                      {order.items.map((item, idx) => (
+                        <div
+                          key={`${order.orderId}-${item.productId}-${item.size}-${idx}`}
+                          className="flex items-center justify-between text-xs bg-[#F5F1E9] px-3 py-2 rounded-xl border border-[#D2C8B8]/60"
+                        >
+                          <span>
+                            <strong>{item.quantity}x</strong> {item.title}{" "}
+                            <span className="text-[#4A4F4B]">
+                              (Size {item.size})
+                            </span>
+                          </span>
+                          <span className="font-medium">
+                            {formatCents(
+                              item.unitCents * item.quantity,
+                              order.currency
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* HMAC Verification Footer & Action Button */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                      <div className="text-[10px] font-mono text-[#284232] bg-[#F5F1E9] px-2.5 py-1 rounded-lg border border-[#D2C8B8]">
+                        HMAC-SHA256: {order.hmacSignature.slice(0, 24)}...
+                      </div>
+
+                      {order.status !== "dispatched" ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const updated =
+                              await advanceFulfillmentStatusAction(
+                                order.orderId
+                              );
+                            setFulfillmentQueue(updated);
+                          }}
+                          className="btn-glass-primary px-4 py-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
+                        >
+                          {order.status === "awaiting_picking"
+                            ? "Mark as Packed →"
+                            : "Dispatch Courier →"}
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#172A1E]">
+                          <Check className="w-4 h-4 text-[#284232]" />
+                          Fulfilled &amp; Dispatched
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
