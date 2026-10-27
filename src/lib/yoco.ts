@@ -44,56 +44,47 @@ export interface YocoCheckoutSessionResult {
 }
 
 /**
- * Builds the live Yoco Payment Link URL (https://pay.yoco.com/obsessed-ltd)
- * pre-filled with the server-verified ZAR amount, order reference, and customer details.
+ * Builds the official Yoco Payment Page URL (https://pay.yoco.com/obsessed-ltd)
+ * using Yoco's supported `amount` and `reference` query parameters.
  */
 export function buildYocoPaymentLinkUrl(
   input: YocoCheckoutSessionInput
 ): string {
   const amountRands = (input.amountZarCents / 100).toFixed(2);
-  const nameParts = input.customerName.trim().split(/\s+/);
-  const firstName = nameParts[0] || "";
-  const lastName = nameParts.slice(1).join(" ") || "";
-
   const url = new URL(getSafeYocoPaymentPageUrl());
   url.searchParams.set("amount", amountRands);
-  url.searchParams.set("currency", "ZAR");
   url.searchParams.set("reference", input.orderId);
-  if (firstName) url.searchParams.set("firstName", firstName);
-  if (lastName) url.searchParams.set("lastName", lastName);
-  if (input.customerEmail) url.searchParams.set("email", input.customerEmail);
-
   return url.toString();
 }
 
 /**
  * Creates a Yoco Online Checkout session.
- * - If YOCO_SECRET_KEY (sk_live_... or sk_test_...) is configured, uses the Yoco Checkout API.
- * - Otherwise, uses the live Obsessed LTD Yoco Payment Page (https://pay.yoco.com/obsessed-ltd)
- *   pre-populated with the verified ZAR amount and order reference.
+ * - If YOCO_SECRET_KEY is a REST API key (starts with sk_live_ or sk_test_), calls https://payments.yoco.com/api/checkouts.
+ * - Otherwise (including when using a yoco_live_ plugin key or Payment Page link), resolves immediately
+ *   to https://pay.yoco.com/obsessed-ltd?amount=...&reference=... with zero network latency.
  */
 export async function createYocoCheckoutSession(
   input: YocoCheckoutSessionInput
 ): Promise<YocoCheckoutSessionResult> {
-  const secretKey = process.env.YOCO_SECRET_KEY?.trim();
+  const secretKey = process.env.YOCO_SECRET_KEY?.trim() || "";
   const paymentLinkUrl = buildYocoPaymentLinkUrl(input);
 
-  if (
-    !secretKey ||
-    secretKey.includes("replace_with_your_yoco_secret_key")
-  ) {
+  const isRestApiSecretKey =
+    (secretKey.startsWith("sk_live_") || secretKey.startsWith("sk_test_")) &&
+    !secretKey.includes("replace_with_your_yoco_secret_key");
+
+  if (!isRestApiSecretKey) {
     return {
       ok: true,
-      mode: "payment-link",
-      checkoutId: `yoco_link_${input.orderId.toLowerCase()}`,
+      mode: secretKey.startsWith("yoco_live_") ? "live" : "payment-link",
+      checkoutId: `yoco_live_${input.orderId.toLowerCase()}`,
       redirectUrl: paymentLinkUrl,
     };
   }
 
-  const mode: "live" | "test" =
-    secretKey.startsWith("sk_live_") || secretKey.startsWith("yoco_live_")
-      ? "live"
-      : "test";
+  const mode: "live" | "test" = secretKey.startsWith("sk_live_")
+    ? "live"
+    : "test";
 
   const baseUrl = input.originUrl || "http://localhost:3000";
 
