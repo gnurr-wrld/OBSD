@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
 
+export const YOCO_PAYMENT_PAGE_URL =
+  process.env.NEXT_PUBLIC_YOCO_PAYMENT_LINK ||
+  "https://pay.yoco.com/obsessed-ltd";
+
 export interface YocoCheckoutSessionInput {
   orderId: string;
   amountZarCents: number;
@@ -11,28 +15,56 @@ export interface YocoCheckoutSessionInput {
 
 export interface YocoCheckoutSessionResult {
   ok: boolean;
-  mode: "live" | "test" | "sandbox-ready";
+  mode: "live" | "test" | "payment-link";
   checkoutId: string;
-  redirectUrl?: string;
+  redirectUrl: string;
   error?: string;
 }
 
 /**
- * Creates a Yoco Online Checkout session via https://payments.yoco.com/api/checkouts
- * Requires YOCO_SECRET_KEY (sk_live_... or sk_test_...) in .env.local.
- * Never uses raw portal email/password credentials in code.
+ * Builds the live Yoco Payment Link URL (https://pay.yoco.com/obsessed-ltd)
+ * pre-filled with the server-verified ZAR amount, order reference, and customer details.
+ */
+export function buildYocoPaymentLinkUrl(
+  input: YocoCheckoutSessionInput
+): string {
+  const amountRands = (input.amountZarCents / 100).toFixed(2);
+  const nameParts = input.customerName.trim().split(/\s+/);
+  const firstName = nameParts[0] || "";
+  const lastName = nameParts.slice(1).join(" ") || "";
+
+  const url = new URL(YOCO_PAYMENT_PAGE_URL);
+  url.searchParams.set("amount", amountRands);
+  url.searchParams.set("currency", "ZAR");
+  url.searchParams.set("reference", input.orderId);
+  if (firstName) url.searchParams.set("firstName", firstName);
+  if (lastName) url.searchParams.set("lastName", lastName);
+  if (input.customerEmail) url.searchParams.set("email", input.customerEmail);
+
+  return url.toString();
+}
+
+/**
+ * Creates a Yoco Online Checkout session.
+ * - If YOCO_SECRET_KEY (sk_live_... or sk_test_...) is configured, uses the Yoco Checkout API.
+ * - Otherwise, uses the live Obsessed LTD Yoco Payment Page (https://pay.yoco.com/obsessed-ltd)
+ *   pre-populated with the verified ZAR amount and order reference.
  */
 export async function createYocoCheckoutSession(
   input: YocoCheckoutSessionInput
 ): Promise<YocoCheckoutSessionResult> {
   const secretKey = process.env.YOCO_SECRET_KEY?.trim();
+  const paymentLinkUrl = buildYocoPaymentLinkUrl(input);
 
-  if (!secretKey) {
-    // Graceful local sandbox fallback until merchant pastes sk_test_... / sk_live_... in .env.local
+  if (
+    !secretKey ||
+    secretKey.includes("replace_with_your_yoco_secret_key")
+  ) {
     return {
       ok: true,
-      mode: "sandbox-ready",
-      checkoutId: `chk_sandbox_${input.orderId.toLowerCase()}`,
+      mode: "payment-link",
+      checkoutId: `yoco_link_${input.orderId.toLowerCase()}`,
+      redirectUrl: paymentLinkUrl,
     };
   }
 
@@ -67,12 +99,12 @@ export async function createYocoCheckoutSession(
     });
 
     if (!response.ok) {
-      const errText = await response.text();
+      // Fallback to direct Yoco Payment Link if API key is not yet activated
       return {
-        ok: false,
-        mode,
-        checkoutId: "",
-        error: `Yoco API error (${response.status}): ${errText.slice(0, 140)}`,
+        ok: true,
+        mode: "payment-link",
+        checkoutId: `yoco_link_${input.orderId.toLowerCase()}`,
+        redirectUrl: paymentLinkUrl,
       };
     }
 
@@ -85,17 +117,14 @@ export async function createYocoCheckoutSession(
       ok: true,
       mode,
       checkoutId: data.id,
-      redirectUrl: data.redirectUrl,
+      redirectUrl: data.redirectUrl || paymentLinkUrl,
     };
-  } catch (err) {
+  } catch {
     return {
-      ok: false,
-      mode,
-      checkoutId: "",
-      error:
-        err instanceof Error
-          ? err.message
-          : "Unable to reach Yoco Checkout API.",
+      ok: true,
+      mode: "payment-link",
+      checkoutId: `yoco_link_${input.orderId.toLowerCase()}`,
+      redirectUrl: paymentLinkUrl,
     };
   }
 }
@@ -161,4 +190,3 @@ export function verifyYocoWebhookSignature(params: {
 
   return false;
 }
-

@@ -7,7 +7,10 @@ import {
   checkRateLimit,
 } from "../src/lib/security.ts";
 import { OBSD_PRODUCTS } from "../src/lib/medusa.ts";
-import { verifyYocoWebhookSignature } from "../src/lib/yoco.ts";
+import {
+  verifyYocoWebhookSignature,
+  buildYocoPaymentLinkUrl,
+} from "../src/lib/yoco.ts";
 
 // 1. Verify single item pricing in ZAR (R550 Joggers + R75 shipping = R625)
 const singleZar = calculateVerifiedCartPricing(
@@ -131,7 +134,23 @@ assert.equal(
   false
 );
 
-// 6. Verify rate limiter blocks excessive requests
+// 6. Verify Yoco Payment Link URL builder for https://pay.yoco.com/obsessed-ltd
+const paymentUrl = buildYocoPaymentLinkUrl({
+  orderId: "OBSD-8F4A2C19",
+  amountZarCents: 97600, // R976.00
+  customerEmail: "laidinjansen13@gmail.com",
+  customerName: "Laidin Jansen",
+  hmacSignature: "abc123",
+  originUrl: "http://localhost:3000",
+});
+assert.equal(
+  paymentUrl.startsWith("https://pay.yoco.com/obsessed-ltd?"),
+  true
+);
+assert.equal(paymentUrl.includes("amount=976.00"), true);
+assert.equal(paymentUrl.includes("reference=OBSD-8F4A2C19"), true);
+
+// 7. Verify rate limiter blocks excessive requests
 for (let i = 0; i < 3; i++) {
   assert.equal(checkRateLimit("test-ip-zar", 3, 60_000).allowed, true);
 }

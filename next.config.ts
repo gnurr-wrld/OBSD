@@ -6,11 +6,11 @@ const cspHeader = `
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   img-src 'self' blob: data: https://images.unsplash.com https://*.yoco.com;
   font-src 'self' https://fonts.gstatic.com;
-  connect-src 'self' https://payments.yoco.com https://js.yoco.com;
-  frame-src 'self' https://payments.yoco.com https://js.yoco.com;
+  connect-src 'self' https://payments.yoco.com https://pay.yoco.com https://js.yoco.com;
+  frame-src 'self' https://payments.yoco.com https://pay.yoco.com https://js.yoco.com;
   object-src 'none';
   base-uri 'self';
-  form-action 'self' https://payments.yoco.com;
+  form-action 'self' https://payments.yoco.com https://pay.yoco.com;
   frame-ancestors 'none';
   upgrade-insecure-requests;
 `.replace(/\n/g, "");
@@ -48,7 +48,7 @@ const nextConfig: NextConfig = {
           {
             key: "Permissions-Policy",
             value:
-              'camera=(), microphone=(), geolocation=(), payment=(self "https://payments.yoco.com" "https://js.yoco.com")',
+              'camera=(), microphone=(), geolocation=(), payment=(self "https://payments.yoco.com" "https://pay.yoco.com" "https://js.yoco.com")',
           },
           {
             key: "Strict-Transport-Security",

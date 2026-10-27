@@ -26,7 +26,8 @@ export interface FulfillmentOrderRecord {
   shippingCents: number;
   hmacSignature: string;
   yocoCheckoutId: string;
-  yocoMode: "live" | "test" | "sandbox-ready";
+  yocoPaymentUrl: string;
+  yocoMode: "live" | "test" | "payment-link";
   status: FulfillmentStatus;
   items: {
     productId: string;
@@ -63,8 +64,9 @@ const FULFILLMENT_QUEUE: FulfillmentOrderRecord[] = [
     promoDiscountCents: seedSummary.promoDiscountCents,
     shippingCents: seedSummary.shippingCents,
     hmacSignature: seedSummary.signature,
-    yocoCheckoutId: `chk_yoco_${seedSummary.signature.slice(0, 10)}`,
-    yocoMode: process.env.YOCO_SECRET_KEY ? "live" : "sandbox-ready",
+    yocoCheckoutId: `yoco_link_obsd_${seedSummary.signature.slice(0, 8)}`,
+    yocoPaymentUrl: `https://pay.yoco.com/obsessed-ltd?amount=${(seedSummary.totalCents / 100).toFixed(2)}&currency=ZAR&reference=OBSD-${seedSummary.signature.slice(0, 8).toUpperCase()}`,
+    yocoMode: process.env.YOCO_SECRET_KEY ? "live" : "payment-link",
     status: "awaiting_picking",
     items: seedItems.map((item) => {
       const product = OBSD_PRODUCTS.find((p) => p.id === item.productId);
@@ -87,7 +89,7 @@ export interface CheckoutActionResult {
   medusaSynced?: boolean;
   yocoRedirectUrl?: string;
   yocoCheckoutId?: string;
-  yocoMode?: "live" | "test" | "sandbox-ready";
+  yocoMode?: "live" | "test" | "payment-link";
   queueRecord?: FulfillmentOrderRecord;
 }
 
@@ -227,6 +229,7 @@ export async function submitOrderAction(
       shippingCents: summary.shippingCents,
       hmacSignature: summary.signature,
       yocoCheckoutId: yocoSession.checkoutId,
+      yocoPaymentUrl: yocoSession.redirectUrl,
       yocoMode: yocoSession.mode,
       status: "awaiting_picking",
       items: items.map((item) => {

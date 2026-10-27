@@ -112,6 +112,7 @@ export default function ObsistStorefront({
     ok?: boolean;
     message?: string;
     orderId?: string;
+    yocoUrl?: string;
   } | null>(null);
 
   // Medusa Fulfillment Queue & Compliance Documentation state
@@ -413,12 +414,11 @@ export default function ObsistStorefront({
       setCheckoutStatus({
         ok: true,
         orderId: response.orderId,
-        message: response.yocoRedirectUrl
-          ? `Yoco 3D Secure Session (${response.yocoCheckoutId}) created. Redirecting to Yoco PayGate...`
-          : `Yoco PayGate Verified (${response.yocoCheckoutId}) & HMAC-signed (${formatCents(response.summary.totalCents, response.summary.currency)}). Dispatched to Obsessed LTD Medusa fulfillment queue.`,
+        yocoUrl: response.yocoRedirectUrl,
+        message: `Verified (${formatCents(response.summary.totalCents, response.summary.currency)}) & logged to Medusa Fulfillment Queue. Opening Yoco Payment Gateway (pay.yoco.com/obsessed-ltd)...`,
       });
       if (response.yocoRedirectUrl) {
-        window.location.href = response.yocoRedirectUrl;
+        window.open(response.yocoRedirectUrl, "_blank", "noopener,noreferrer");
       }
     } else {
       setCheckoutStatus({
@@ -1585,6 +1585,17 @@ export default function ObsistStorefront({
                       </div>
                     )}
                     <p>{checkoutStatus.message}</p>
+                    {checkoutStatus.ok && checkoutStatus.yocoUrl && (
+                      <a
+                        href={checkoutStatus.yocoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-glass-accent w-full py-2.5 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Pay Now on Yoco (pay.yoco.com/obsessed-ltd) →</span>
+                      </a>
+                    )}
                     {checkoutStatus.ok && (
                       <button
                         type="button"
