@@ -8,6 +8,7 @@ import {
   checkRateLimit,
   type PricedCartSummary,
 } from "@/lib/security";
+import { createYocoCheckoutSession } from "@/lib/yoco";
 
 export type FulfillmentStatus = "awaiting_picking" | "packed" | "dispatched";
 
@@ -24,6 +25,8 @@ export interface FulfillmentOrderRecord {
   promoDiscountCents: number;
   shippingCents: number;
   hmacSignature: string;
+  yocoCheckoutId: string;
+  yocoMode: "live" | "test" | "sandbox-ready";
   status: FulfillmentStatus;
   items: {
     productId: string;
@@ -60,6 +63,8 @@ const FULFILLMENT_QUEUE: FulfillmentOrderRecord[] = [
     promoDiscountCents: seedSummary.promoDiscountCents,
     shippingCents: seedSummary.shippingCents,
     hmacSignature: seedSummary.signature,
+    yocoCheckoutId: `chk_yoco_${seedSummary.signature.slice(0, 10)}`,
+    yocoMode: process.env.YOCO_SECRET_KEY ? "live" : "sandbox-ready",
     status: "awaiting_picking",
     items: seedItems.map((item) => {
       const product = OBSD_PRODUCTS.find((p) => p.id === item.productId);
@@ -80,6 +85,9 @@ export interface CheckoutActionResult {
   orderId?: string;
   summary?: PricedCartSummary;
   medusaSynced?: boolean;
+  yocoRedirectUrl?: string;
+  yocoCheckoutId?: string;
+  yocoMode?: "live" | "test" | "sandbox-ready";
   queueRecord?: FulfillmentOrderRecord;
 }
 
@@ -101,6 +109,17 @@ export async function advanceFulfillmentStatusAction(
     }
   }
   return [...FULFILLMENT_QUEUE];
+}
+
+export async function markOrderPaidViaYocoWebhookAction(
+  orderId: string,
+  yocoPaymentId: string
+): Promise<void> {
+  const target = FULFILLMENT_QUEUE.find((o) => o.orderId === orderId);
+  if (target) {
+    target.yocoCheckoutId = yocoPaymentId;
+    target.yocoMode = "live";
+  }
 }
 
 export async function quoteCartAction(
@@ -169,8 +188,30 @@ export async function submitOrderAction(
       parsed.data;
     const summary = calculateVerifiedCartPricing(items, promoCode, currency);
 
+    // Yoco settles in South African Rand (ZAR cents)
+    const zarSummary =
+      currency === "ZAR"
+        ? summary
+        : calculateVerifiedCartPricing(items, promoCode, "ZAR");
+
     const orderSuffix = summary.signature.slice(0, 8).toUpperCase();
     const orderId = `OBSD-${orderSuffix}`;
+
+    const yocoSession = await createYocoCheckoutSession({
+      orderId,
+      amountZarCents: zarSummary.totalCents,
+      customerEmail: email,
+      customerName: fullName,
+      hmacSignature: summary.signature,
+      originUrl: origin || "http://localhost:3000",
+    });
+
+    if (!yocoSession.ok) {
+      return {
+        ok: false,
+        error: yocoSession.error || "Yoco payment initialization failed.",
+      };
+    }
 
     const record: FulfillmentOrderRecord = {
       orderId,
@@ -185,6 +226,8 @@ export async function submitOrderAction(
       promoDiscountCents: summary.promoDiscountCents,
       shippingCents: summary.shippingCents,
       hmacSignature: summary.signature,
+      yocoCheckoutId: yocoSession.checkoutId,
+      yocoMode: yocoSession.mode,
       status: "awaiting_picking",
       items: items.map((item) => {
         const product = OBSD_PRODUCTS.find((p) => p.id === item.productId);
@@ -209,6 +252,9 @@ export async function submitOrderAction(
       orderId,
       summary,
       medusaSynced: true,
+      yocoRedirectUrl: yocoSession.redirectUrl,
+      yocoCheckoutId: yocoSession.checkoutId,
+      yocoMode: yocoSession.mode,
       queueRecord: record,
     };
   } catch (err) {

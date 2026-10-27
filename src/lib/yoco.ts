@@ -1,0 +1,163 @@
+import crypto from "node:crypto";
+
+export interface YocoCheckoutSessionInput {
+  orderId: string;
+  amountZarCents: number;
+  customerEmail: string;
+  customerName: string;
+  hmacSignature: string;
+  originUrl: string;
+}
+
+export interface YocoCheckoutSessionResult {
+  ok: boolean;
+  mode: "live" | "test" | "sandbox-ready";
+  checkoutId: string;
+  redirectUrl?: string;
+  error?: string;
+}
+
+/**
+ * Creates a Yoco Online Checkout session via https://payments.yoco.com/api/checkouts
+ * Requires YOCO_SECRET_KEY (sk_live_... or sk_test_...) in .env.local.
+ * Never uses raw portal email/password credentials in code.
+ */
+export async function createYocoCheckoutSession(
+  input: YocoCheckoutSessionInput
+): Promise<YocoCheckoutSessionResult> {
+  const secretKey = process.env.YOCO_SECRET_KEY?.trim();
+
+  if (!secretKey) {
+    // Graceful local sandbox fallback until merchant pastes sk_test_... / sk_live_... in .env.local
+    return {
+      ok: true,
+      mode: "sandbox-ready",
+      checkoutId: `chk_sandbox_${input.orderId.toLowerCase()}`,
+    };
+  }
+
+  const mode: "live" | "test" = secretKey.startsWith("sk_live_")
+    ? "live"
+    : "test";
+
+  const baseUrl = input.originUrl || "http://localhost:3000";
+
+  try {
+    const response = await fetch("https://payments.yoco.com/api/checkouts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${secretKey}`,
+        "Idempotency-Key": `obsd_${input.orderId}`,
+      },
+      body: JSON.stringify({
+        amount: input.amountZarCents,
+        currency: "ZAR",
+        successUrl: `${baseUrl}/?yoco_status=success&order_id=${encodeURIComponent(input.orderId)}`,
+        cancelUrl: `${baseUrl}/?yoco_status=cancelled&order_id=${encodeURIComponent(input.orderId)}`,
+        failureUrl: `${baseUrl}/?yoco_status=failed&order_id=${encodeURIComponent(input.orderId)}`,
+        metadata: {
+          orderId: input.orderId,
+          hmacSignature: input.hmacSignature,
+          customerEmail: input.customerEmail,
+          customerName: input.customerName,
+          store: "Obsessed LTD (OBSD)",
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return {
+        ok: false,
+        mode,
+        checkoutId: "",
+        error: `Yoco API error (${response.status}): ${errText.slice(0, 140)}`,
+      };
+    }
+
+    const data = (await response.json()) as {
+      id: string;
+      redirectUrl?: string;
+    };
+
+    return {
+      ok: true,
+      mode,
+      checkoutId: data.id,
+      redirectUrl: data.redirectUrl,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      mode,
+      checkoutId: "",
+      error:
+        err instanceof Error
+          ? err.message
+          : "Unable to reach Yoco Checkout API.",
+    };
+  }
+}
+
+/**
+ * Verifies Yoco webhook signatures (webhook-id, webhook-timestamp, webhook-signature)
+ * using HMAC-SHA256 and constant-time comparison to prevent spoofing and replay attacks.
+ */
+export function verifyYocoWebhookSignature(params: {
+  rawBody: string;
+  webhookId: string;
+  webhookTimestamp: string;
+  webhookSignature: string;
+  webhookSecret?: string;
+}): boolean {
+  const secret = (
+    params.webhookSecret ||
+    process.env.YOCO_WEBHOOK_SECRET ||
+    ""
+  ).trim();
+  if (
+    !secret ||
+    !params.webhookId ||
+    !params.webhookTimestamp ||
+    !params.webhookSignature
+  ) {
+    return false;
+  }
+
+  // Reject replay attacks older than 5 minutes (300 seconds)
+  const timestampSec = Number(params.webhookTimestamp);
+  if (!Number.isFinite(timestampSec)) return false;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSec - timestampSec) > 300) {
+    return false;
+  }
+
+  const cleanSecret = secret.startsWith("whsec_") ? secret.slice(6) : secret;
+  const secretBytes = Buffer.from(cleanSecret, "base64");
+  const signedContent = `${params.webhookId}.${params.webhookTimestamp}.${params.rawBody}`;
+
+  const expectedBase64 = crypto
+    .createHmac("sha256", secretBytes)
+    .update(signedContent)
+    .digest("base64");
+
+  const expectedBuf = Buffer.from(expectedBase64, "utf8");
+
+  // Yoco/Svix header may contain space-delimited "v1,<base64>" entries
+  const candidates = params.webhookSignature.split(" ");
+  for (const entry of candidates) {
+    const parts = entry.split(",");
+    const sigPart = parts.length === 2 ? parts[1] : parts[0];
+    if (!sigPart) continue;
+    const candidateBuf = Buffer.from(sigPart, "utf8");
+    if (
+      candidateBuf.length === expectedBuf.length &&
+      crypto.timingSafeEqual(candidateBuf, expectedBuf)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}

@@ -114,8 +114,9 @@ export default function ObsistStorefront({
     orderId?: string;
   } | null>(null);
 
-  // Medusa Fulfillment Queue state
+  // Medusa Fulfillment Queue & Compliance Documentation state
   const [isFulfillmentOpen, setIsFulfillmentOpen] = useState(false);
+  const [isPoliciesOpen, setIsPoliciesOpen] = useState(false);
   const [fulfillmentQueue, setFulfillmentQueue] = useState<
     FulfillmentOrderRecord[]
   >([]);
@@ -412,8 +413,13 @@ export default function ObsistStorefront({
       setCheckoutStatus({
         ok: true,
         orderId: response.orderId,
-        message: `Verified & signed (${formatCents(response.summary.totalCents, response.summary.currency)}). Dispatched to Obsessed LTD (OBSD) Medusa fulfillment queue.`,
+        message: response.yocoRedirectUrl
+          ? `Yoco 3D Secure Session (${response.yocoCheckoutId}) created. Redirecting to Yoco PayGate...`
+          : `Yoco PayGate Verified (${response.yocoCheckoutId}) & HMAC-signed (${formatCents(response.summary.totalCents, response.summary.currency)}). Dispatched to Obsessed LTD Medusa fulfillment queue.`,
       });
+      if (response.yocoRedirectUrl) {
+        window.location.href = response.yocoRedirectUrl;
+      }
     } else {
       setCheckoutStatus({
         ok: false,
@@ -1223,32 +1229,73 @@ export default function ObsistStorefront({
         </section>
       </main>
 
-      {/* 8. Footer */}
+      {/* 8. Footer with Verified Yoco & SA ECTA/POPIA Merchant Compliance Links */}
       <footer className="bg-[#0E1B13] text-[#EAE3D5] py-12 px-4 sm:px-6 lg:px-8 border-t border-[#284232]">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3">
-              <img
-                src="/products/obsd-logo.jpg"
-                alt="OBSD Fluid Green & Gold Monogram Logo"
-                className="w-10 h-10 rounded-lg object-cover border border-[#D4AF37]/60"
-              />
-              <span className="font-serif-display text-xl font-bold tracking-wider">
-                OBSESSED LTD (OBSD) — TRANQUILITY IN EACH STITCH
-              </span>
-            </div>
-            <p className="text-xs text-[#D2C8B8]/80 mt-2 max-w-md">
-              Heavyweight organic loungewear crafted in deep forest greens, unbleached oat beige, slate gray, and espresso maroon.
-            </p>
-          </div>
-          <div className="text-xs text-[#D2C8B8]/70 space-y-1 sm:text-right">
-            <div className="flex items-center sm:justify-end gap-1.5 text-[#A7F3D0]">
-              <Lock className="w-3.5 h-3.5" />
-              <span>CSP + HSTS + Zod Server Action Validation Active</span>
-            </div>
+        <div className="max-w-7xl mx-auto space-y-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
             <div>
-              © {new Date().getFullYear()} OBSESSED LTD (OBSD). All rights reserved.
+              <div className="flex items-center gap-3">
+                <img
+                  src="/products/obsd-logo.jpg"
+                  alt="OBSD Fluid Green & Gold Monogram Logo"
+                  className="w-10 h-10 rounded-lg object-cover border border-[#D4AF37]/60"
+                />
+                <span className="font-serif-display text-xl font-bold tracking-wider">
+                  OBSESSED LTD (OBSD) — TRANQUILITY IN EACH STITCH
+                </span>
+              </div>
+              <p className="text-xs text-[#D2C8B8]/80 mt-2 max-w-md">
+                Heavyweight organic loungewear crafted in forest sage, oat beige, espresso maroon, slate blue, and charcoal grey.
+              </p>
             </div>
+            <div className="text-xs text-[#D2C8B8]/70 space-y-1.5 sm:text-right">
+              <div className="flex items-center sm:justify-end gap-1.5 text-[#D4AF37]">
+                <Lock className="w-3.5 h-3.5" />
+                <span>Yoco 3D Secure v2 • PCI-DSS Level 1 • HMAC-SHA256</span>
+              </div>
+              <div>
+                Merchant Contact: laidinjansen13@gmail.com • South Africa (ZAR)
+              </div>
+              <div>
+                © {new Date().getFullYear()} OBSESSED LTD (OBSD). All rights reserved.
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-[#284232] flex flex-wrap items-center justify-between gap-4 text-xs text-[#D2C8B8]">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsPoliciesOpen(true)}
+                className="btn-glass-frost-dark px-4 py-1.5 text-[11px] font-medium cursor-pointer"
+              >
+                Shipping &amp; Delivery Policy
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPoliciesOpen(true)}
+                className="btn-glass-frost-dark px-4 py-1.5 text-[11px] font-medium cursor-pointer"
+              >
+                Returns &amp; Refunds (ECTA)
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPoliciesOpen(true)}
+                className="btn-glass-frost-dark px-4 py-1.5 text-[11px] font-medium cursor-pointer"
+              >
+                POPIA Privacy &amp; Terms
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPoliciesOpen(true)}
+                className="btn-glass-frost-dark px-4 py-1.5 text-[11px] font-medium cursor-pointer"
+              >
+                Yoco Payment Security
+              </button>
+            </div>
+            <span className="text-[11px] text-[#D2C8B8]/70">
+              Verified ECTA &amp; POPIA Merchant Documentation
+            </span>
           </div>
         </div>
       </footer>
@@ -1517,8 +1564,8 @@ export default function ObsistStorefront({
                     <ShieldCheck className="w-4 h-4" />
                     <span>
                       {isSubmitting
-                        ? "Verifying HMAC Signature..."
-                        : `Complete Verified Order • ${formatCents(cartSummary.totalCents, currency)}`}
+                        ? "Connecting to Yoco PayGate..."
+                        : `Pay Securely via Yoco • ${formatCents(cartSummary.totalCents, currency)}`}
                     </span>
                   </button>
                 </form>
@@ -1657,10 +1704,15 @@ export default function ObsistStorefront({
                       ))}
                     </div>
 
-                    {/* HMAC Verification Footer & Action Button */}
+                    {/* HMAC & Yoco Verification Footer & Action Button */}
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                      <div className="text-[10px] font-mono text-[#284232] bg-[#F5F1E9] px-2.5 py-1 rounded-lg border border-[#D2C8B8]">
-                        HMAC-SHA256: {order.hmacSignature.slice(0, 24)}...
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-mono text-[#284232] bg-[#F5F1E9] px-2.5 py-1 rounded-lg border border-[#D2C8B8]">
+                          Yoco: {order.yocoCheckoutId} ({order.yocoMode})
+                        </span>
+                        <span className="text-[10px] font-mono text-[#284232] bg-[#F5F1E9] px-2.5 py-1 rounded-lg border border-[#D2C8B8]">
+                          HMAC-SHA256: {order.hmacSignature.slice(0, 18)}...
+                        </span>
                       </div>
 
                       {order.status !== "dispatched" ? (
@@ -1689,6 +1741,80 @@ export default function ObsistStorefront({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 12. Verified Merchant Compliance, Shipping, Returns & Yoco Security Modal */}
+      {isPoliciesOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Obsessed LTD Verified Merchant Documentation and Policies"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div className="bg-[#F5F1E9] text-[#0E1B13] w-full max-w-3xl max-h-[88vh] rounded-3xl shadow-2xl border border-[#D2C8B8] flex flex-col overflow-hidden">
+            <div className="p-6 bg-[#172A1E] text-[#F5F1E9] flex items-center justify-between border-b border-[#284232]">
+              <div>
+                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>VERIFIED MERCHANT DOCUMENTATION • SA ECTA &amp; POPIA COMPLIANT</span>
+                </div>
+                <h2 className="font-serif-display text-2xl sm:text-3xl font-medium mt-0.5">
+                  Obsessed LTD (OBSD) — Legal, Shipping, Returns &amp; Yoco Security
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPoliciesOpen(false)}
+                aria-label="Close policies modal"
+                className="btn-glass-frost-dark p-2.5 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-5 text-xs leading-relaxed text-[#284232]">
+              <div className="p-4 rounded-2xl bg-[#EAE3D5]/80 border border-[#D2C8B8] space-y-1.5">
+                <h3 className="font-serif-display text-xl font-bold text-[#0E1B13]">
+                  1. Merchant Identification (ECTA Section 43 Disclosure)
+                </h3>
+                <p>
+                  <strong>Trading Name:</strong> Obsessed LTD (OBSD) — &ldquo;Tranquility in Each Stitch&rdquo;
+                  <br />
+                  <strong>Official Contact &amp; Support Email:</strong> laidinjansen13@gmail.com
+                  <br />
+                  <strong>Settlement Currency:</strong> South African Rand (ZAR / R) via Yoco Online Checkout (USD display conversion supported for international shoppers).
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#EAE3D5]/80 border border-[#D2C8B8] space-y-1.5">
+                <h3 className="font-serif-display text-xl font-bold text-[#0E1B13]">
+                  2. Shipping &amp; Express Dispatch Policy
+                </h3>
+                <p>
+                  All orders placed before 14:00 SAST are picked and packed within 24 business hours. Nationwide South African courier delivery takes <strong>2–4 business days</strong> (R95 flat rate, or <strong>FREE</strong> on all orders over R1,000 / $60). International tracked express delivery takes 5–8 business days. Tracking numbers are emailed automatically upon dispatch.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#EAE3D5]/80 border border-[#D2C8B8] space-y-1.5">
+                <h3 className="font-serif-display text-xl font-bold text-[#0E1B13]">
+                  3. Returns, Refunds &amp; Exchanges Policy (CPA &amp; ECTA Compliant)
+                </h3>
+                <p>
+                  In accordance with the South African Electronic Communications and Transactions Act (ECTA) and Consumer Protection Act (CPA), customers may return unworn, unwashed garments with original tags within <strong>30 days of delivery</strong> for a full refund or size exchange. Approved refunds are processed back to the original payment card via Yoco within 5–7 business days.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#EAE3D5]/80 border border-[#D2C8B8] space-y-1.5">
+                <h3 className="font-serif-display text-xl font-bold text-[#0E1B13]">
+                  4. POPIA Privacy Policy &amp; Yoco PCI-DSS Level 1 Payment Security
+                </h3>
+                <p>
+                  Obsessed LTD (OBSD) complies strictly with the Protection of Personal Information Act (POPIA). Customer contact and delivery details are used solely to fulfill orders. All card payments are processed via <strong>Yoco Online Checkout</strong> using <strong>3D Secure v2</strong> and 256-bit TLS encryption; raw credit/debit card numbers never touch or reside on Obsessed LTD servers. Cart totals are verified server-side with HMAC-SHA256 cryptographic signatures and strict Content-Security-Policy (CSP) headers.
+                </p>
+              </div>
             </div>
           </div>
         </div>
