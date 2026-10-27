@@ -90,9 +90,10 @@ export async function createYocoCheckoutSession(
     };
   }
 
-  const mode: "live" | "test" = secretKey.startsWith("sk_live_")
-    ? "live"
-    : "test";
+  const mode: "live" | "test" =
+    secretKey.startsWith("sk_live_") || secretKey.startsWith("yoco_live_")
+      ? "live"
+      : "test";
 
   const baseUrl = input.originUrl || "http://localhost:3000";
 
