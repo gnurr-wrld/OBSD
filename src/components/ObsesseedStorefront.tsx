@@ -67,12 +67,24 @@ export default function ObsistStorefront({
     Record<string, "S" | "M" | "L" | "XL">
   >({
     prod_obsd_jogger_01: "L",
+    prod_obsd_shorts_07: "L",
     prod_obsd_set_02: "M",
     prod_obsd_vest_03: "L",
     prod_obsd_shirt_04: "M",
     prod_obsd_socks_05: "M",
     prod_obsd_hoodie_06: "L",
   });
+  const [selectedColors, setSelectedColors] = useState<Record<string, string>>(
+    {
+      prod_obsd_jogger_01: "Sage Moss",
+      prod_obsd_shorts_07: "Slate Blue",
+      prod_obsd_set_02: "Sage Forest",
+      prod_obsd_vest_03: "Cream Beige",
+      prod_obsd_shirt_04: "Forest Green",
+      prod_obsd_socks_05: "Oat Cream",
+      prod_obsd_hoodie_06: "Sage Forest",
+    }
+  );
 
   // Pre-seeded with the R550 Wide-Leg Lounge Joggers
   const [cart, setCart] = useState<CartEntry[]>([
@@ -673,7 +685,7 @@ export default function ObsistStorefront({
         <section className="py-6 px-4 sm:px-6 lg:px-8 bg-[#F5F1E9]/70 border-b border-[#D2C8B8]/70">
           <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
             <span className="text-xs uppercase tracking-[0.22em] font-medium text-[#4A4F4B]">
-              The Earth Palette
+              The Signature Palette
             </span>
 
             <div className="flex flex-wrap items-center gap-6">
@@ -686,12 +698,16 @@ export default function ObsistStorefront({
                 <span className="text-xs font-medium text-[#0E1B13]">Oat Beige</span>
               </div>
               <div className="flex items-center gap-2.5">
-                <span className="w-4 h-4 rounded-full bg-[#525753] border border-black/15 shadow-2xs" />
-                <span className="text-xs font-medium text-[#0E1B13]">Slate Gray</span>
-              </div>
-              <div className="flex items-center gap-2.5">
                 <span className="w-4 h-4 rounded-full bg-[#4A2529] border border-black/15 shadow-2xs" />
                 <span className="text-xs font-medium text-[#0E1B13]">Espresso Maroon</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="w-4 h-4 rounded-full bg-[#5B7083] border border-black/15 shadow-2xs" />
+                <span className="text-xs font-medium text-[#0E1B13]">Slate Blue</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <span className="w-4 h-4 rounded-full bg-[#363A3D] border border-black/15 shadow-2xs" />
+                <span className="text-xs font-medium text-[#0E1B13]">Charcoal Grey</span>
               </div>
             </div>
           </div>
@@ -720,8 +736,9 @@ export default function ObsistStorefront({
             >
               {(
                 [
-                  { id: "all", label: "All (6)" },
+                  { id: "all", label: "All (7)" },
                   { id: "joggers", label: "Joggers" },
+                  { id: "shorts", label: "Shorts" },
                   { id: "sets", label: "2-Piece Sets" },
                   { id: "vests", label: "Vests" },
                   { id: "shirts", label: "Tees" },
@@ -753,6 +770,10 @@ export default function ObsistStorefront({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {filteredProducts.map((product) => {
               const currentSize = selectedSizes[product.id] || "L";
+              const currentColor =
+                selectedColors[product.id] ||
+                product.colors[0]?.name ||
+                product.colorName;
               const displayPrice = formatCurrencyPrice(
                 product.priceZarCents,
                 product.priceUsdCents,
@@ -799,12 +820,8 @@ export default function ObsistStorefront({
                     {/* Clean Typography Card Body */}
                     <div className="p-6 pb-4">
                       <div className="flex items-center justify-between gap-2 text-[11px] text-[#4A4F4B] mb-2">
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full border border-black/20"
-                            style={{ backgroundColor: product.colorHex }}
-                          />
-                          {product.colorName}
+                        <span className="font-medium text-[#284232]">
+                          Color: <strong>{currentColor}</strong>
                         </span>
                         <span className="flex items-center gap-1 font-medium text-[#0E1B13]">
                           <Star className="w-3 h-3 fill-[#D97706] text-[#D97706]" />
@@ -818,6 +835,38 @@ export default function ObsistStorefront({
                       <p className="text-xs text-[#4A4F4B] mt-1.5 leading-relaxed line-clamp-2 font-light">
                         {product.subtitle}
                       </p>
+
+                      {/* Colorway Swatches (Includes Slate Blue & Charcoal Grey on every item) */}
+                      <div
+                        className="mt-4 flex items-center gap-2"
+                        role="group"
+                        aria-label={`Select color for ${product.title}`}
+                      >
+                        {product.colors.map((c) => {
+                          const isColorActive = currentColor === c.name;
+                          return (
+                            <button
+                              key={c.name}
+                              type="button"
+                              title={c.name}
+                              aria-label={`${c.name} color`}
+                              aria-pressed={isColorActive}
+                              onClick={() =>
+                                setSelectedColors((prev) => ({
+                                  ...prev,
+                                  [product.id]: c.name,
+                                }))
+                              }
+                              className={`w-6 h-6 rounded-full border transition-transform cursor-pointer ${
+                                isColorActive
+                                  ? "scale-115 ring-2 ring-[#172A1E] ring-offset-2 ring-offset-[#F5F1E9] border-black/30"
+                                  : "border-black/20 hover:scale-110"
+                              }`}
+                              style={{ backgroundColor: c.hex }}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
