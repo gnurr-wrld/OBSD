@@ -84,10 +84,16 @@ const sanitized = CheckoutOrderSchema.parse({
   email: "customer@obsist.co.za",
   fullName: "  <script>Sipho Ndlovu</script>  ",
   shippingAddress: "14 Kloof Street <img src=x onerror=alert(1)>",
+  phone: "+27 82 123 4567",
+  city: "Cape Town",
+  province: "Western Cape",
+  postalCode: "8001",
+  country: "South Africa",
   promoCode: "SANCTUARY",
 });
 assert.equal(sanitized.fullName.includes("<"), false);
 assert.equal(sanitized.shippingAddress.includes(">"), false);
+assert.equal(sanitized.phone, "+27821234567");
 
 // 5. Verify Yoco Webhook HMAC-SHA256 signature & replay attack protection
 const rawSecret = Buffer.from("obsd_yoco_webhook_test_secret_32b").toString(

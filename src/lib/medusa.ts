@@ -135,7 +135,7 @@ export const OBSD_PRODUCTS: Product[] = [
     rating: 4.98,
     reviewsCount: 640,
     image: "/products/obsist-wide-shorts.jpg",
-    hoverImage: "/products/combo-model-wide-shorts.jpg",
+    hoverImage: "/products/shorts-model-hover.jpg",
     variants: [
       { id: "var_shrt_s", size: "S", stock: 22 },
       { id: "var_shrt_m", size: "M", stock: 30 },

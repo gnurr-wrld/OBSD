@@ -30,20 +30,29 @@ export const CartItemInputSchema = z.object({
   quantity: z.number().int().min(1).max(10),
 });
 
+const cleanText = (min: number, max: number) =>
+  z
+    .string()
+    .transform((s) => s.replace(/[<>"'`\x00-\x1F\x7F]/g, "").trim())
+    .pipe(z.string().min(min).max(max));
+
 export const CheckoutOrderSchema = z.object({
   items: z.array(CartItemInputSchema).min(1).max(20),
   currency: z.enum(["ZAR", "USD"]).optional().default("ZAR"),
   email: z.string().email().max(120),
-  fullName: z
+  fullName: cleanText(2, 80),
+  phone: z
     .string()
-    .min(2)
-    .max(80)
-    .transform((s) => s.replace(/[<>"'`\x00-\x1F\x7F]/g, "").trim()),
-  shippingAddress: z
+    .transform((s) => s.replace(/[\s()-]/g, ""))
+    .pipe(z.string().regex(/^\+?[0-9]{7,15}$/, "Invalid phone number")),
+  shippingAddress: cleanText(5, 160),
+  city: cleanText(2, 80),
+  province: cleanText(2, 80),
+  postalCode: z
     .string()
-    .min(5)
-    .max(160)
-    .transform((s) => s.replace(/[<>"'`\x00-\x1F\x7F]/g, "").trim()),
+    .trim()
+    .regex(/^[A-Za-z0-9 -]{3,10}$/, "Invalid postal code"),
+  country: cleanText(2, 60),
   promoCode: z
     .enum(["NONE", "OBSD10", "SANCTUARY"])
     .optional()

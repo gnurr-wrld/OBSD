@@ -19,8 +19,6 @@ import {
   Lock,
   Layers,
   Globe,
-  PackageCheck,
-  Truck,
 } from "lucide-react";
 import {
   formatCurrencyPrice,
@@ -32,9 +30,6 @@ import {
   submitOrderAction,
   confirmYocoPaymentAction,
   verifyYocoReturnOrderAction,
-  getFulfillmentQueueAction,
-  advanceFulfillmentStatusAction,
-  type FulfillmentOrderRecord,
 } from "@/app/actions/cart";
 
 gsap.registerPlugin(ScrollTrigger, useGSAP);
@@ -109,6 +104,11 @@ export default function ObsistStorefront({
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [shippingAddress, setShippingAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [province, setProvince] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [country, setCountry] = useState("South Africa");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
   const [yocoReferenceInput, setYocoReferenceInput] = useState("");
@@ -121,30 +121,23 @@ export default function ObsistStorefront({
     yocoUrl?: string;
   } | null>(null);
 
-  // Medusa Fulfillment Queue & Compliance Documentation state
-  const [isFulfillmentOpen, setIsFulfillmentOpen] = useState(false);
+  // Compliance Documentation state
   const [isPoliciesOpen, setIsPoliciesOpen] = useState(false);
-  const [fulfillmentQueue, setFulfillmentQueue] = useState<
-    FulfillmentOrderRecord[]
-  >([]);
 
   useEffect(() => {
-    getFulfillmentQueueAction().then(setFulfillmentQueue);
-
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const yocoStatus = params.get("yoco_status");
       const returnedOrderId = params.get("order_id");
       if (yocoStatus === "success" && returnedOrderId) {
         verifyYocoReturnOrderAction(returnedOrderId).then((res) => {
-          if (res.queue) setFulfillmentQueue(res.queue);
           if (res.ok && res.paid && res.order) {
             setIsCartOpen(true);
             setCheckoutStatus({
               ok: true,
               paid: true,
               orderId: res.order.orderId,
-              message: `Yoco API Payment Verified (${res.order.yocoReference || res.order.yocoCheckoutId}). Order ${res.order.orderId} is PAID and in the Medusa Fulfillment Queue!`,
+              message: `Payment confirmed by Yoco. Thank you! Order ${res.order.orderId} is being prepared — a confirmation will be sent to ${res.order.customer.email}.`,
             });
           }
         });
@@ -423,6 +416,11 @@ export default function ObsistStorefront({
       fullName,
       email,
       shippingAddress,
+      phone,
+      city,
+      province,
+      postalCode,
+      country,
       promoCode,
     });
 
@@ -435,7 +433,7 @@ export default function ObsistStorefront({
         orderId: response.orderId,
         paymentToken: response.paymentToken,
         yocoUrl: response.yocoRedirectUrl,
-        message: `Step 1 Complete: Order ${response.orderId} (${formatCents(response.summary.totalCents, response.summary.currency)}) is staged & awaiting Yoco payment. Orders only enter the Fulfillment Queue once Yoco payment is verified.`,
+        message: `Order ${response.orderId} (${formatCents(response.summary.totalCents, response.summary.currency)}) is reserved and awaiting payment on Yoco.`,
       });
       if (response.yocoRedirectUrl) {
         window.open(response.yocoRedirectUrl, "_blank", "noopener,noreferrer");
@@ -459,14 +457,13 @@ export default function ObsistStorefront({
     });
     setIsConfirmingPayment(false);
 
-    if (res.ok && res.queue) {
-      setFulfillmentQueue(res.queue);
+    if (res.ok && res.order) {
       setCheckoutStatus((prev) =>
         prev
           ? {
               ...prev,
               paid: true,
-              message: `Yoco Payment Verified (${res.order?.yocoReference}). Order ${prev.orderId} is now PAID and dispatched to the Medusa Fulfillment Queue!`,
+              message: `Payment confirmed by Yoco. Thank you! Order ${prev.orderId} is being prepared.`,
             }
           : null
       );
@@ -591,23 +588,6 @@ export default function ObsistStorefront({
                 USD
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={async () => {
-                const latest = await getFulfillmentQueueAction();
-                setFulfillmentQueue(latest);
-                setIsFulfillmentOpen(true);
-              }}
-              aria-label="Open Medusa Fulfillment Queue"
-              className="btn-glass-light flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold tracking-wider cursor-pointer"
-            >
-              <PackageCheck className="w-4 h-4" />
-              <span className="hidden md:inline">FULFILLMENT</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-black/10 text-[10px] font-bold">
-                {fulfillmentQueue.length}
-              </span>
-            </button>
 
             <button
               type="button"
@@ -1595,20 +1575,129 @@ export default function ObsistStorefront({
                   </div>
                   <div>
                     <label
+                      htmlFor="checkout-phone"
+                      className="block text-[11px] font-semibold mb-1"
+                    >
+                      Phone Number (for courier)
+                    </label>
+                    <input
+                      id="checkout-phone"
+                      required
+                      type="tel"
+                      autoComplete="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+27 82 123 4567"
+                      className="w-full px-3 py-2 rounded-lg bg-[#F5F1E9] border border-[#D2C8B8] text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="checkout-country"
+                      className="block text-[11px] font-semibold mb-1"
+                    >
+                      Country
+                    </label>
+                    <input
+                      id="checkout-country"
+                      required
+                      type="text"
+                      autoComplete="country-name"
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      placeholder="South Africa"
+                      className="w-full px-3 py-2 rounded-lg bg-[#F5F1E9] border border-[#D2C8B8] text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label
                       htmlFor="checkout-address"
                       className="block text-[11px] font-semibold mb-1"
                     >
-                      Delivery Address (SA or International)
+                      Street Address (incl. unit / complex)
                     </label>
                     <input
                       id="checkout-address"
                       required
                       type="text"
+                      autoComplete="street-address"
                       value={shippingAddress}
                       onChange={(e) => setShippingAddress(e.target.value)}
-                      placeholder="14 Kloof Street, Gardens, Cape Town, 8001"
+                      placeholder="14 Kloof Street, Gardens"
                       className="w-full px-3 py-2 rounded-lg bg-[#F5F1E9] border border-[#D2C8B8] text-xs"
                     />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label
+                        htmlFor="checkout-city"
+                        className="block text-[11px] font-semibold mb-1"
+                      >
+                        City
+                      </label>
+                      <input
+                        id="checkout-city"
+                        required
+                        type="text"
+                        autoComplete="address-level2"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        placeholder="Cape Town"
+                        className="w-full px-3 py-2 rounded-lg bg-[#F5F1E9] border border-[#D2C8B8] text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="checkout-postal"
+                        className="block text-[11px] font-semibold mb-1"
+                      >
+                        Postal Code
+                      </label>
+                      <input
+                        id="checkout-postal"
+                        required
+                        type="text"
+                        autoComplete="postal-code"
+                        value={postalCode}
+                        onChange={(e) => setPostalCode(e.target.value)}
+                        placeholder="8001"
+                        className="w-full px-3 py-2 rounded-lg bg-[#F5F1E9] border border-[#D2C8B8] text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="checkout-province"
+                      className="block text-[11px] font-semibold mb-1"
+                    >
+                      Province / State
+                    </label>
+                    <input
+                      id="checkout-province"
+                      required
+                      type="text"
+                      autoComplete="address-level1"
+                      list="sa-provinces"
+                      value={province}
+                      onChange={(e) => setProvince(e.target.value)}
+                      placeholder="Western Cape"
+                      className="w-full px-3 py-2 rounded-lg bg-[#F5F1E9] border border-[#D2C8B8] text-xs"
+                    />
+                    <datalist id="sa-provinces">
+                      {[
+                        "Eastern Cape",
+                        "Free State",
+                        "Gauteng",
+                        "KwaZulu-Natal",
+                        "Limpopo",
+                        "Mpumalanga",
+                        "North West",
+                        "Northern Cape",
+                        "Western Cape",
+                      ].map((p) => (
+                        <option key={p} value={p} />
+                      ))}
+                    </datalist>
                   </div>
 
                   <button
@@ -1639,7 +1728,7 @@ export default function ObsistStorefront({
                           <Check className="w-4 h-4" />
                           <span>
                             {checkoutStatus.paid
-                              ? `Paid & Queued: ${checkoutStatus.orderId}`
+                              ? `Paid: ${checkoutStatus.orderId}`
                               : `Awaiting Yoco Payment: ${checkoutStatus.orderId}`}
                           </span>
                         </span>
@@ -1674,22 +1763,6 @@ export default function ObsistStorefront({
 
                     {checkoutStatus.ok && !checkoutStatus.paid && (
                       <div className="pt-2 border-t border-white/15 space-y-2">
-                        <label
-                          htmlFor="yoco-ref-input"
-                          className="block text-[10px] uppercase tracking-wider text-[#D4AF37] font-semibold"
-                        >
-                          Yoco Payment Reference / Receipt Code
-                        </label>
-                        <input
-                          id="yoco-ref-input"
-                          type="text"
-                          value={yocoReferenceInput}
-                          onChange={(e) =>
-                            setYocoReferenceInput(e.target.value)
-                          }
-                          placeholder="e.g. YOCO-8F4A2C"
-                          className="w-full px-3 py-2 rounded-lg bg-[#0E1B13] border border-[#284232] text-xs text-[#F5F1E9]"
-                        />
                         <button
                           type="button"
                           disabled={isConfirmingPayment}
@@ -1700,172 +1773,15 @@ export default function ObsistStorefront({
                           <span>
                             {isConfirmingPayment
                               ? "Verifying Yoco Payment..."
-                              : "2. Confirm Paid & Add to Fulfillment Queue →"}
+                              : "2. I've Paid — Confirm My Order →"}
                           </span>
                         </button>
                       </div>
-                    )}
-
-                    {checkoutStatus.ok && checkoutStatus.paid && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsCartOpen(false);
-                          setIsFulfillmentOpen(true);
-                        }}
-                        className="btn-glass-primary w-full py-2.5 px-3 text-[11px] uppercase tracking-wider font-semibold flex items-center justify-center gap-1.5 cursor-pointer mt-2"
-                      >
-                        <PackageCheck className="w-3.5 h-3.5" />
-                        <span>Open Medusa Fulfillment Queue →</span>
-                      </button>
                     )}
                   </div>
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* 11. Medusa v2 Fulfillment Queue Modal */}
-      {isFulfillmentOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Obsessed LTD Medusa Fulfillment Queue"
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
-        >
-          <div className="bg-[#F5F1E9] text-[#0E1B13] w-full max-w-3xl max-h-[88vh] rounded-3xl shadow-2xl border border-[#D2C8B8] flex flex-col overflow-hidden">
-            {/* Modal Header */}
-            <div className="p-6 bg-[#172A1E] text-[#F5F1E9] flex items-center justify-between border-b border-[#284232]">
-              <div>
-                <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#D4AF37]">
-                  <Truck className="w-3.5 h-3.5" />
-                  <span>MEDUSA V2 FULFILLMENT ENGINE • HMAC-SHA256 VERIFIED</span>
-                </div>
-                <h2 className="font-serif-display text-2xl sm:text-3xl font-medium mt-0.5">
-                  Obsessed LTD (OBSD) Fulfillment Queue ({fulfillmentQueue.length})
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsFulfillmentOpen(false)}
-                aria-label="Close fulfillment queue"
-                className="btn-glass-frost-dark p-2.5 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Queue List */}
-            <div className="p-6 overflow-y-auto space-y-4 flex-1">
-              {fulfillmentQueue.map((order) => {
-                const statusLabel =
-                  order.status === "awaiting_picking"
-                    ? "Awaiting Warehouse Pick"
-                    : order.status === "packed"
-                      ? "Packed & Kraft Sealed"
-                      : "Dispatched via Express Courier";
-
-                return (
-                  <div
-                    key={order.orderId}
-                    className="p-5 rounded-2xl bg-[#EAE3D5]/75 border border-[#D2C8B8] space-y-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#D2C8B8]/80 pb-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-serif-display text-xl font-bold text-[#0E1B13]">
-                            {order.orderId}
-                          </span>
-                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-900 text-emerald-100 text-[10px] font-bold uppercase tracking-wider">
-                            PAID • {order.yocoReference || "YOCO VERIFIED"}
-                          </span>
-                          <span className="px-2.5 py-0.5 rounded-full bg-[#172A1E] text-[#D4AF37] text-[10px] font-semibold uppercase tracking-wider">
-                            {statusLabel}
-                          </span>
-                        </div>
-                        <p className="text-xs text-[#4A4F4B] mt-0.5">
-                          <strong>{order.fullName}</strong> ({order.email}) •{" "}
-                          {order.shippingAddress}
-                        </p>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-sm font-bold text-[#0E1B13]">
-                          {formatCents(order.totalCents, order.currency)} (
-                          {order.currency})
-                        </div>
-                        <div className="text-[10px] text-[#4A4F4B]">
-                          {new Date(order.createdAt).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Line Items */}
-                    <div className="space-y-1.5">
-                      {order.items.map((item, idx) => (
-                        <div
-                          key={`${order.orderId}-${item.productId}-${item.size}-${idx}`}
-                          className="flex items-center justify-between text-xs bg-[#F5F1E9] px-3 py-2 rounded-xl border border-[#D2C8B8]/60"
-                        >
-                          <span>
-                            <strong>{item.quantity}x</strong> {item.title}{" "}
-                            <span className="text-[#4A4F4B]">
-                              (Size {item.size})
-                            </span>
-                          </span>
-                          <span className="font-medium">
-                            {formatCents(
-                              item.unitCents * item.quantity,
-                              order.currency
-                            )}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* HMAC & Yoco Verification Footer & Action Button */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-mono text-[#284232] bg-[#F5F1E9] px-2.5 py-1 rounded-lg border border-[#D2C8B8]">
-                          Yoco: {order.yocoCheckoutId} ({order.yocoMode})
-                        </span>
-                        <span className="text-[10px] font-mono text-[#284232] bg-[#F5F1E9] px-2.5 py-1 rounded-lg border border-[#D2C8B8]">
-                          HMAC-SHA256: {order.hmacSignature.slice(0, 18)}...
-                        </span>
-                      </div>
-
-                      {order.status !== "dispatched" ? (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const updated =
-                              await advanceFulfillmentStatusAction(
-                                order.orderId
-                              );
-                            setFulfillmentQueue(updated);
-                          }}
-                          className="btn-glass-primary px-4 py-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer"
-                        >
-                          {order.status === "awaiting_picking"
-                            ? "Mark as Packed →"
-                            : "Dispatch Courier →"}
-                        </button>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#172A1E]">
-                          <Check className="w-4 h-4 text-[#284232]" />
-                          Fulfilled &amp; Dispatched
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </div>
       )}
