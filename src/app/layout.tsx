@@ -17,6 +17,14 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "https://obsd-five.vercel.app");
+
 export const viewport: Viewport = {
   themeColor: "#172A1E",
   colorScheme: "light",
@@ -25,9 +33,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL || "https://obsd.co.za"
-  ),
+  metadataBase: new URL(siteUrl),
   title: {
     default: "Obsessed LTD (OBSD) — Tranquility in Each Stitch",
     template: "%s | Obsessed LTD",
