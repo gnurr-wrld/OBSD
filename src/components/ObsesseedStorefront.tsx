@@ -535,23 +535,23 @@ export default function ObsistStorefront({
 
           <nav
             aria-label="Main Categories"
-            className="hidden lg:flex items-center gap-8 text-xs uppercase tracking-[0.16em] font-medium text-[#284232]"
+            className="hidden lg:flex items-center gap-1.5 p-1.5 rounded-full bg-[#172A1E]/5 backdrop-blur-md border border-[#172A1E]/10 shadow-xs"
           >
             <a
               href="#catalog"
-              className="hover:text-[#5E1B24] transition-colors cursor-pointer"
+              className="px-4 py-1.5 rounded-full text-xs uppercase tracking-[0.18em] font-medium text-[#172A1E] hover:text-[#D4AF37] hover:bg-[#172A1E] transition-all duration-300 cursor-pointer"
             >
               Collection
             </a>
             <a
               href="#fit-architecture"
-              className="hover:text-[#5E1B24] transition-colors cursor-pointer"
+              className="px-4 py-1.5 rounded-full text-xs uppercase tracking-[0.18em] font-medium text-[#172A1E] hover:text-[#D4AF37] hover:bg-[#172A1E] transition-all duration-300 cursor-pointer"
             >
               Fit &amp; Craft
             </a>
             <a
               href="#combinations"
-              className="hover:text-[#5E1B24] transition-colors cursor-pointer"
+              className="px-4 py-1.5 rounded-full text-xs uppercase tracking-[0.18em] font-medium text-[#172A1E] hover:text-[#D4AF37] hover:bg-[#172A1E] transition-all duration-300 cursor-pointer"
             >
               Combinations
             </a>
@@ -1289,7 +1289,16 @@ export default function ObsistStorefront({
                 <span>Yoco 3D Secure v2 • PCI-DSS Level 1 • HMAC-SHA256</span>
               </div>
               <div>
-                Merchant Contact: laidinjansen13@gmail.com • South Africa (ZAR)
+                <a
+                  href="mailto:laidinjansen13@gmail.com"
+                  className="inline-flex items-center gap-1.5 hover:text-[#D4AF37] transition-colors group cursor-pointer"
+                >
+                  <span className="text-[#D2C8B8]/70">Merchant Contact:</span>
+                  <span className="text-[#EAE3D5] group-hover:text-[#D4AF37] underline decoration-[#D4AF37]/40 group-hover:decoration-[#D4AF37] underline-offset-4 font-medium transition-colors">
+                    laidinjansen13@gmail.com
+                  </span>
+                  <span className="text-[#D2C8B8]/50">• South Africa (ZAR)</span>
+                </a>
               </div>
               <div>
                 © {new Date().getFullYear()} OBSESSED LTD (OBSD). All rights reserved.
